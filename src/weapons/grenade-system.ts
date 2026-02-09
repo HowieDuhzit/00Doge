@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d-compat';
 import { PhysicsWorld } from '../core/physics-world';
 import { EnemyManager } from '../enemies/enemy-manager';
 
@@ -27,6 +28,8 @@ export class GrenadeSystem {
   private scene: THREE.Scene;
   private physics: PhysicsWorld;
   private enemyManager: EnemyManager | null = null;
+  /** Excluded from ground raycast so the grenade doesn't "land" on the player. */
+  private playerCollider: RAPIER.Collider | null = null;
   private thrown: ThrownGrenade[] = [];
   private clouds: GasCloud[] = [];
   private readonly _rayOrigin = new THREE.Vector3();
@@ -39,6 +42,10 @@ export class GrenadeSystem {
 
   setEnemyManager(manager: EnemyManager): void {
     this.enemyManager = manager;
+  }
+
+  setPlayerCollider(collider: RAPIER.Collider): void {
+    this.playerCollider = collider;
   }
 
   /** Throw a gas grenade from origin along direction (normalized). */
@@ -87,7 +94,12 @@ export class GrenadeSystem {
   }
 
   private getGroundY(x: number, y: number, z: number): number {
-    const hit = this.physics.castRay(x, y, z, 0, -1, 0, GROUND_RAY_LENGTH);
+    const hit = this.physics.castRay(
+      x, y, z,
+      0, -1, 0,
+      GROUND_RAY_LENGTH,
+      this.playerCollider ?? undefined,
+    );
     if (hit) {
       return hit.point.y;
     }

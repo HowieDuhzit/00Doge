@@ -127,6 +127,7 @@ export class Game {
     // Grenade system (gas grenades)
     this.grenadeSystem = new GrenadeSystem(this.scene, this.physics);
     this.grenadeSystem.setEnemyManager(this.enemyManager);
+    this.grenadeSystem.setPlayerCollider(this.player.getCollider());
 
     // Pickup system
     this.pickupSystem = new PickupSystem(this.scene);
