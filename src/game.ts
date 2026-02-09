@@ -20,6 +20,8 @@ import { DamageIndicator } from './ui/damage-indicator';
 import { ScopeOverlay } from './ui/scope-overlay';
 import { BriefingScreen } from './ui/briefing-screen';
 import { ObjectivesDisplay } from './ui/objectives-display';
+import { InventoryScreen } from './ui/inventory-screen';
+import { renderWeaponPreviewToCanvas } from './weapons/weapon-preview-renderer';
 import {
   concreteWallTexture,
   floorTileTexture,
@@ -57,6 +59,8 @@ export class Game {
   private objectiveSystem: ObjectiveSystem | null = null;
   private briefingScreen: BriefingScreen | null = null;
   private objectivesDisplay: ObjectivesDisplay | null = null;
+  private inventoryScreen: InventoryScreen;
+  private weaponPreviewMeshCache = new Map<string, THREE.Group>();
 
   private physicsAccumulator = 0;
   private started = false;
@@ -104,6 +108,7 @@ export class Game {
       this.projectileSystem,
       this.events,
       this.player.getCollider(),
+      () => this.player.isCrouching,
     );
 
     // Enemy manager
@@ -131,6 +136,9 @@ export class Game {
       this.damageIndicator.flash();
     };
 
+    // Skip decals/impact particles on enemy hits (no lingering effects) and use enemy collider for hit test
+    this.projectileSystem.isEnemyCollider = (c) => this.enemyManager.getEnemyByCollider(c) !== null;
+
     // When player shoots: check if it hit an enemy
     this.projectileSystem.onHitCollider = (collider, _point, _normal) => {
       const enemy = this.enemyManager.getEnemyByCollider(collider);
@@ -140,6 +148,7 @@ export class Game {
         this.hud.flashCrosshair(); // Red flash = hit confirmed
 
         if (enemy.dead) {
+          this.enemyManager.removeEnemyPhysics(enemy); // So player doesn't get stuck on corpses
           this.events.emit('enemy:killed', {
             position: enemy.group.position.clone(),
           });
@@ -149,6 +158,9 @@ export class Game {
 
     // HUD
     this.hud = new HUD();
+
+    // Inventory (Tab to open/close)
+    this.inventoryScreen = new InventoryScreen();
 
     if (this.levelMode) {
       this.doorSystem = new DoorSystem(
@@ -226,6 +238,49 @@ export class Game {
   }
 
   private tick(dt: number): void {
+    // Inventory toggle (Tab)
+    if (this.input.wasKeyJustPressed('Tab')) {
+      if (this.inventoryScreen.isOpen) {
+        this.inventoryScreen.hide();
+        if (this.started) this.input.requestPointerLock();
+        this.input.resetMouse(); // So same Tab doesn't reopen next frame
+      } else {
+        document.exitPointerLock();
+        this.inventoryScreen.show(
+          {
+            weapons: this.weaponManager.getOwnedWeapons(),
+            keys: this.player.getKeys(),
+          },
+          (type, skin) => {
+            this.weaponManager.setWeaponSkin(type, skin);
+            this.inventoryScreen.updateState({
+              weapons: this.weaponManager.getOwnedWeapons(),
+              keys: this.player.getKeys(),
+            });
+          },
+          () => {
+            this.inventoryScreen.hide();
+            if (this.started) this.input.requestPointerLock();
+          },
+          (type, skin, rotationY, canvas) => {
+            const key = `${type}:${skin}`;
+            let mesh = this.weaponPreviewMeshCache.get(key);
+            if (!mesh) {
+              mesh = this.weaponManager.getPreviewMesh(type, skin);
+              this.weaponPreviewMeshCache.set(key, mesh);
+            }
+            mesh.rotation.y = rotationY;
+            renderWeaponPreviewToCanvas(mesh, type, skin, rotationY, canvas);
+          },
+        );
+      }
+    }
+
+    if (this.inventoryScreen.isOpen) {
+      this.input.resetMouse();
+      return; // Don't update camera, weapons, or gameplay while inventory is open
+    }
+
     // Update camera from mouse input
     this.fpsCamera.update(this.input);
 

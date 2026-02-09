@@ -208,6 +208,16 @@ export class EnemyManager {
     return null;
   }
 
+  /** Remove an enemy's physics body and collider so the player can walk through corpses. Call when enemy dies. */
+  removeEnemyPhysics(enemy: EnemyBase): void {
+    try {
+      this.physics.removeCollider(enemy.collider, true);
+      this.physics.removeRigidBody(enemy.rigidBody);
+    } catch {
+      // Already removed or invalid
+    }
+  }
+
   update(dt: number): void {
     // Update player fired timer
     if (this.playerFiredTimer > 0) {

@@ -8,15 +8,16 @@ export const ROWS = 3;
 
 export interface GuardVariant {
   uniformColor: string;
+  vestColor: string;   // Tactical vest / chest rig
   skinTone: string;
-  headgear: 'none' | 'beret' | 'cap';
+  headgear: 'none' | 'beret' | 'cap' | 'helmet' | 'helmet_net';
   name: string;
 }
 
 export const GUARD_VARIANTS: Record<string, GuardVariant> = {
-  guard: { uniformColor: '#334455', skinTone: '#DDBB99', headgear: 'none', name: 'guard' },
-  soldier: { uniformColor: '#556633', skinTone: '#AA8866', headgear: 'beret', name: 'soldier' },
-  officer: { uniformColor: '#222233', skinTone: '#DDBB99', headgear: 'cap', name: 'officer' },
+  guard:  { uniformColor: '#3d4a36', vestColor: '#2a3324', skinTone: '#C4A574', headgear: 'helmet_net', name: 'guard' },
+  soldier: { uniformColor: '#4a5c3d', vestColor: '#3d4a36', skinTone: '#AA8866', headgear: 'helmet', name: 'soldier' },
+  officer: { uniformColor: '#2c2c34', vestColor: '#1e1e26', skinTone: '#DDBB99', headgear: 'cap', name: 'officer' },
 };
 
 // Shared texture cache (one GPU upload per variant)
@@ -94,8 +95,9 @@ const ARM_W = 5;
 const ARM_H = 20;
 const LEG_W = 6;
 const LEG_H = 24;
-const BOOT_H = 5;
+const BOOT_H = 6;   // Slightly taller combat boot
 const BELT_H = 3;
+const VEST_INSET = 2;  // Vest sits inside torso outline
 const GUN_W = 4;
 const GUN_H = 14;
 
@@ -112,7 +114,7 @@ function drawHead(ctx: CanvasRenderingContext2D, cx: number, v: GuardVariant, ti
   ctx.arc(cx + tiltX, HEAD_Y, HEAD_R, 0, Math.PI * 2);
   ctx.fill();
 
-  // Eyes
+  // Eyes (narrower, more alert)
   ctx.fillStyle = '#000000';
   ctx.fillRect(cx + tiltX - 3, HEAD_Y - 2, 2, 2);
   ctx.fillRect(cx + tiltX + 2, HEAD_Y - 2, 2, 2);
@@ -120,23 +122,50 @@ function drawHead(ctx: CanvasRenderingContext2D, cx: number, v: GuardVariant, ti
   // Mouth
   ctx.fillRect(cx + tiltX - 2, HEAD_Y + 3, 4, 1);
 
-  // Headgear
+  // Headgear — soldier aesthetic
   if (v.headgear === 'beret') {
-    ctx.fillStyle = '#662222';
+    ctx.fillStyle = '#4a2a2a';
     ctx.beginPath();
     ctx.ellipse(cx + tiltX + 2, HEAD_Y - HEAD_R + 1, HEAD_R + 2, 4, 0, Math.PI, 0);
     ctx.fill();
   } else if (v.headgear === 'cap') {
-    ctx.fillStyle = '#222233';
-    ctx.fillRect(cx + tiltX - HEAD_R - 2, HEAD_Y - HEAD_R - 1, HEAD_R * 2 + 4, 4);
-    // Brim
-    ctx.fillRect(cx + tiltX - HEAD_R - 4, HEAD_Y - HEAD_R + 2, HEAD_R * 2 + 8, 2);
+    // Military patrol cap
+    ctx.fillStyle = '#1e1e26';
+    ctx.fillRect(cx + tiltX - HEAD_R - 2, HEAD_Y - HEAD_R - 1, HEAD_R * 2 + 4, 5);
+    ctx.fillStyle = '#2c2c34';
+    ctx.fillRect(cx + tiltX - HEAD_R - 3, HEAD_Y - HEAD_R + 3, HEAD_R * 2 + 6, 2);
+  } else if (v.headgear === 'helmet' || v.headgear === 'helmet_net') {
+    // Combat helmet (dome)
+    ctx.fillStyle = '#3d4242';
+    ctx.beginPath();
+    ctx.ellipse(cx + tiltX, HEAD_Y - HEAD_R - 2, HEAD_R + 3, HEAD_R + 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Chin strap hint
+    ctx.strokeStyle = '#2a2a2a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx + tiltX - 4, HEAD_Y + 2, 3, 0, Math.PI);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx + tiltX + 4, HEAD_Y + 2, 3, 0, Math.PI);
+    ctx.stroke();
+    if (v.headgear === 'helmet_net') {
+      // Net/scrim overlay (crosshatch)
+      ctx.strokeStyle = 'rgba(60,55,45,0.6)';
+      ctx.lineWidth = 1;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(cx + tiltX - 8 + i * 4, HEAD_Y - 10);
+        ctx.lineTo(cx + tiltX + 8 + i * 4, HEAD_Y + 2);
+        ctx.stroke();
+      }
+    }
   }
 }
 
 function drawTorso(ctx: CanvasRenderingContext2D, cx: number, v: GuardVariant, tiltX = 0): void {
+  // Base uniform — trapezoid: wider shoulders, narrower waist
   ctx.fillStyle = v.uniformColor;
-  // Trapezoid: wider shoulders, narrower waist
   ctx.beginPath();
   ctx.moveTo(cx + tiltX - TORSO_W / 2, TORSO_Y);
   ctx.lineTo(cx + tiltX + TORSO_W / 2, TORSO_Y);
@@ -145,12 +174,25 @@ function drawTorso(ctx: CanvasRenderingContext2D, cx: number, v: GuardVariant, t
   ctx.closePath();
   ctx.fill();
 
-  // Belt
-  ctx.fillStyle = '#444433';
-  ctx.fillRect(cx + tiltX - TORSO_W / 2 + 1, BELT_Y, TORSO_W - 2, BELT_H);
+  // Tactical vest / chest rig overlay
+  ctx.fillStyle = v.vestColor;
+  ctx.beginPath();
+  ctx.moveTo(cx + tiltX - TORSO_W / 2 + VEST_INSET, TORSO_Y + 2);
+  ctx.lineTo(cx + tiltX + TORSO_W / 2 - VEST_INSET, TORSO_Y + 2);
+  ctx.lineTo(cx + tiltX + TORSO_W / 2 - VEST_INSET - 1, BELT_Y - 2);
+  ctx.lineTo(cx + tiltX - TORSO_W / 2 + VEST_INSET + 1, BELT_Y - 2);
+  ctx.closePath();
+  ctx.fill();
+  // Pouches (small rectangles on vest)
+  ctx.fillStyle = '#252a20';
+  ctx.fillRect(cx + tiltX - 5, TORSO_Y + 8, 4, 6);
+  ctx.fillRect(cx + tiltX + 2, TORSO_Y + 8, 4, 6);
+  ctx.fillRect(cx + tiltX - 2, TORSO_Y + 16, 4, 5);
 
-  // Belt buckle
-  ctx.fillStyle = '#888866';
+  // Belt (tactical webbing)
+  ctx.fillStyle = '#35382e';
+  ctx.fillRect(cx + tiltX - TORSO_W / 2 + 1, BELT_Y, TORSO_W - 2, BELT_H);
+  ctx.fillStyle = '#4a4d42';
   ctx.fillRect(cx + tiltX - 2, BELT_Y, 4, BELT_H);
 }
 
@@ -162,18 +204,21 @@ function drawLegs(
   rightOffset = 0,
 ): void {
   const legGap = 3;
-  // Left leg
+  // Left leg (BDU / cargo style)
   ctx.fillStyle = v.uniformColor;
   ctx.fillRect(cx - legGap - LEG_W + leftOffset, LEG_Y, LEG_W, LEG_H - BOOT_H);
-  // Left boot
-  ctx.fillStyle = '#222222';
+  ctx.fillStyle = '#252a20';
+  ctx.fillRect(cx - legGap - LEG_W + leftOffset + 1, LEG_Y + LEG_H - BOOT_H - 8, LEG_W - 2, 4);
+  // Left combat boot
+  ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(cx - legGap - LEG_W + leftOffset, LEG_Y + LEG_H - BOOT_H, LEG_W + 1, BOOT_H);
 
   // Right leg
   ctx.fillStyle = v.uniformColor;
   ctx.fillRect(cx + legGap + rightOffset, LEG_Y, LEG_W, LEG_H - BOOT_H);
-  // Right boot
-  ctx.fillStyle = '#222222';
+  ctx.fillStyle = '#252a20';
+  ctx.fillRect(cx + legGap + rightOffset + 1, LEG_Y + LEG_H - BOOT_H - 8, LEG_W - 2, 4);
+  ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(cx + legGap + rightOffset, LEG_Y + LEG_H - BOOT_H, LEG_W + 1, BOOT_H);
 }
 
@@ -202,8 +247,11 @@ function drawGun(ctx: CanvasRenderingContext2D, x: number, y: number, angle: num
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
+  // Rifle body
   ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(-GUN_W / 2, 0, GUN_W, GUN_H);
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(-GUN_W / 2 + 1, 2, GUN_W - 2, 4);
   ctx.restore();
 }
 

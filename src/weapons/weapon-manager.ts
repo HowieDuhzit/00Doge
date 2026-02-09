@@ -10,7 +10,8 @@ import { Pistol } from './weapons/pistol';
 import { Rifle } from './weapons/rifle';
 import { Shotgun } from './weapons/shotgun';
 import { Sniper } from './weapons/sniper';
-import { playGunshot, playDryFire, playReload } from '../audio/sound-effects';
+import { playGunshotWeapon, playDryFire, playReload } from '../audio/sound-effects';
+import type { WeaponSkin } from './weapon-skins';
 
 const WEAPON_TYPE_MAP: WeaponType[] = ['pistol', 'rifle', 'shotgun', 'sniper'];
 const DEFAULT_FOV = 75;
@@ -30,17 +31,30 @@ export class WeaponManager {
   private _scoped = false;
   private scopeFovTransition = DEFAULT_FOV;
 
+  /** Optional: used to disable sprint bob when crouching */
+  private getIsCrouching: (() => boolean) | null = null;
+
+  /** Per-weapon skin selection */
+  private weaponSkins: Record<WeaponType, WeaponSkin> = {
+    pistol: 'default',
+    rifle: 'default',
+    shotgun: 'default',
+    sniper: 'default',
+  };
+
   constructor(
     scene: THREE.Scene,
     fpsCamera: FPSCamera,
     projectileSystem: ProjectileSystem,
     events: EventBus,
     playerCollider: RAPIER.Collider,
+    getIsCrouching?: () => boolean,
   ) {
     this.fpsCamera = fpsCamera;
     this.projectileSystem = projectileSystem;
     this.events = events;
     this.playerCollider = playerCollider;
+    if (getIsCrouching) this.getIsCrouching = getIsCrouching;
 
     this.viewModel = new WeaponViewModel();
     fpsCamera.camera.add(this.viewModel.group);
@@ -89,8 +103,37 @@ export class WeaponManager {
     this._scoped = false;
     this.viewModel.setScoped(false);
     this.currentIndex = index;
-    this.viewModel.switchWeapon(WEAPON_TYPE_MAP[index]);
+    const type = WEAPON_TYPE_MAP[index];
+    this.viewModel.switchWeapon(type, this.weaponSkins[type]);
     this.events.emit('weapon:switched', { weaponName: this.currentWeapon.stats.name });
+  }
+
+  getWeaponSkin(type: WeaponType): WeaponSkin {
+    return this.weaponSkins[type];
+  }
+
+  setWeaponSkin(type: WeaponType, skin: WeaponSkin): void {
+    this.weaponSkins[type] = skin;
+    if (WEAPON_TYPE_MAP[this.currentIndex] === type) {
+      this.viewModel.setSkin(skin);
+    }
+  }
+
+  /** Build weapon mesh for preview (inventory 3D thumbnail). */
+  getPreviewMesh(type: WeaponType, skin: WeaponSkin): THREE.Group {
+    return this.viewModel.buildWeaponMeshForPreview(type, skin);
+  }
+
+  /** List of owned weapons with name and current skin (for inventory UI). */
+  getOwnedWeapons(): { type: WeaponType; name: string; skin: WeaponSkin }[] {
+    const out: { type: WeaponType; name: string; skin: WeaponSkin }[] = [];
+    for (let i = 0; i < 4; i++) {
+      const w = this.weapons[i];
+      if (!w) continue;
+      const type = WEAPON_TYPE_MAP[i];
+      out.push({ type, name: w.stats.name, skin: this.weaponSkins[type] });
+    }
+    return out;
   }
 
   update(input: InputManager, dt: number): void {
@@ -161,12 +204,13 @@ export class WeaponManager {
 
     this.wasMouseDown = mouseDown;
 
-    // View model
+    // View model (sprint = more bob when moving with Shift and not crouching)
     this.viewModel.addSway(input.mouseMovementX, input.mouseMovementY);
     const isMoving =
       input.isKeyDown('w') || input.isKeyDown('a') ||
       input.isKeyDown('s') || input.isKeyDown('d');
-    this.viewModel.update(dt, isMoving);
+    const isSprinting = isMoving && input.isKeyDown('Shift') && !(this.getIsCrouching?.() ?? false);
+    this.viewModel.update(dt, isMoving, isSprinting);
   }
 
   private doFire(): void {
@@ -196,7 +240,7 @@ export class WeaponManager {
       this.projectileSystem.fireRay(origin, dir, weapon, this.playerCollider);
     }
 
-    playGunshot();
+    playGunshotWeapon(WEAPON_TYPE_MAP[this.currentIndex]);
     this.viewModel.triggerRecoil();
     this.events.emit('weapon:fired', {
       weaponName: weapon.stats.name,

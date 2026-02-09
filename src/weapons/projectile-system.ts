@@ -42,6 +42,8 @@ export class ProjectileSystem {
 
   // Callbacks for hit detection
   onHitCollider: ((collider: RAPIER.Collider, point: THREE.Vector3, normal: THREE.Vector3) => void) | null = null;
+  /** If set, decals and impact particles are skipped when the hit collider is an enemy (avoids lingering effects on bodies). */
+  isEnemyCollider: ((collider: RAPIER.Collider) => boolean) | null = null;
 
   constructor(scene: THREE.Scene, physics: PhysicsWorld) {
     this.scene = scene;
@@ -105,11 +107,12 @@ export class ProjectileSystem {
       this._hitPoint.set(result.point.x, result.point.y, result.point.z);
       this._normal.copy(this._spreadDir).negate();
 
-      // Create bullet hole decal
-      this.createDecal(this._hitPoint, this._normal);
-
-      // Spawn impact particles
-      this.spawnImpactParticles(this._hitPoint, this._normal);
+      const hitEnemy = this.isEnemyCollider?.(result.collider) ?? false;
+      if (!hitEnemy) {
+        // Only leave decals and particles on walls/geometry — not on enemies (no lingering blocks)
+        this.createDecal(this._hitPoint, this._normal);
+        this.spawnImpactParticles(this._hitPoint, this._normal);
+      }
 
       // Notify listeners (enemy hit detection)
       if (this.onHitCollider) {

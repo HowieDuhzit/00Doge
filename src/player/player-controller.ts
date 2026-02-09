@@ -5,11 +5,15 @@ import { PhysicsWorld } from '../core/physics-world';
 import { FPSCamera } from './fps-camera';
 
 const MOVE_SPEED = 6;
+const SPRINT_MULTIPLIER = 1.65;
+const CROUCH_SPEED_MULTIPLIER = 0.4;
 const JUMP_VELOCITY = 5;
 const GRAVITY = -15;
 const PLAYER_RADIUS = 0.3;
 const PLAYER_HALF_HEIGHT = 0.6;
-const EYE_HEIGHT = 1.5; // From ground to camera
+const CROUCH_HALF_HEIGHT = 0.35;
+const EYE_HEIGHT = 1.5;       // From ground to camera when standing
+const EYE_HEIGHT_CROUCH = 0.95; // From ground when crouching
 
 export class PlayerController {
   private body: RAPIER.RigidBody;
@@ -25,6 +29,13 @@ export class PlayerController {
 
   /** Keys collected (e.g. 'red', 'blue') for locked doors */
   private keys = new Set<string>();
+
+  /** Crouch toggle (C key). When true, use shorter capsule and lower speed. */
+  private crouching = false;
+  /** Smooth crouch transition 0 = standing, 1 = fully crouched (for camera lerp). */
+  private crouchTransition = 0;
+  /** Current capsule half-height (standing or crouch). */
+  private currentHalfHeight = PLAYER_HALF_HEIGHT;
 
   constructor(
     private physics: PhysicsWorld,
@@ -58,10 +69,20 @@ export class PlayerController {
   }
 
   update(input: InputManager, dt: number): void {
+    // Crouch toggle (C)
+    if (input.wasKeyJustPressed('c')) {
+      this.crouching = !this.crouching;
+    }
+    // Apply crouch: resize collider and move body so feet stay on ground
+    this.updateCrouchState(dt);
+
     const forward = new THREE.Vector3();
     const right = new THREE.Vector3();
     this.fpsCamera.getForward(forward);
     this.fpsCamera.getRight(right);
+
+    const sprinting = input.isKeyDown('Shift') && !this.crouching;
+    let speed = MOVE_SPEED * (this.crouching ? CROUCH_SPEED_MULTIPLIER : sprinting ? SPRINT_MULTIPLIER : 1);
 
     // Compute desired horizontal movement
     const move = new THREE.Vector3(0, 0, 0);
@@ -71,11 +92,11 @@ export class PlayerController {
     if (input.isKeyDown('a')) move.sub(right);
 
     if (move.lengthSq() > 0) {
-      move.normalize().multiplyScalar(MOVE_SPEED * dt);
+      move.normalize().multiplyScalar(speed * dt);
     }
 
-    // Vertical movement (gravity + jump)
-    if (this.grounded && input.isKeyDown(' ')) {
+    // Vertical movement (gravity + jump). Can't jump while crouching; standing required.
+    if (this.grounded && input.isKeyDown(' ') && !this.crouching) {
       this.verticalVelocity = JUMP_VELOCITY;
       this.grounded = false;
     }
@@ -105,10 +126,38 @@ export class PlayerController {
       new RAPIER.Vector3(newPos.x, newPos.y, newPos.z),
     );
 
-    // Position camera at eye height above the collider bottom
+    // Position camera: lerp eye height between standing and crouch
     const bodyPos = this.body.translation();
-    const eyeY = bodyPos.y + PLAYER_HALF_HEIGHT + PLAYER_RADIUS - (PLAYER_HALF_HEIGHT * 2 + PLAYER_RADIUS * 2) + EYE_HEIGHT;
+    const capsuleBottom = bodyPos.y - (this.currentHalfHeight + PLAYER_RADIUS);
+    const standEyeY = capsuleBottom + EYE_HEIGHT;
+    const crouchEyeY = capsuleBottom + EYE_HEIGHT_CROUCH;
+    const eyeY = standEyeY + (crouchEyeY - standEyeY) * this.crouchTransition;
     this.fpsCamera.setPosition(bodyPos.x, eyeY, bodyPos.z);
+  }
+
+  /** Resize capsule when crouching/standing and smooth crouch transition. */
+  private updateCrouchState(dt: number): void {
+    const targetTransition = this.crouching ? 1 : 0;
+    this.crouchTransition += (targetTransition - this.crouchTransition) * Math.min(1, dt * 12);
+
+    const targetHalfHeight = this.crouching ? CROUCH_HALF_HEIGHT : PLAYER_HALF_HEIGHT;
+    if (targetHalfHeight === this.currentHalfHeight) return;
+
+    const bodyPos = this.body.translation();
+    const oldBottom = bodyPos.y - (this.currentHalfHeight + PLAYER_RADIUS);
+    this.currentHalfHeight = targetHalfHeight;
+    this.physics.world.removeCollider(this.collider, true);
+    const colliderDesc = this.physics.rapier.ColliderDesc.capsule(
+      this.currentHalfHeight,
+      PLAYER_RADIUS,
+    );
+    this.collider = this.physics.world.createCollider(colliderDesc, this.body);
+    const newY = oldBottom + this.currentHalfHeight + PLAYER_RADIUS;
+    this.body.setTranslation(new RAPIER.Vector3(bodyPos.x, newY, bodyPos.z), true);
+  }
+
+  get isCrouching(): boolean {
+    return this.crouching || this.crouchTransition > 0.1;
   }
 
   getPosition(): { x: number; y: number; z: number } {
@@ -116,8 +165,18 @@ export class PlayerController {
     return { x: t.x, y: t.y, z: t.z };
   }
 
-  /** Teleport player (e.g. level spawn). */
+  /** Teleport player (e.g. level spawn). Resets to standing. */
   setPosition(x: number, y: number, z: number): void {
+    this.crouching = false;
+    this.crouchTransition = 0;
+    if (this.currentHalfHeight !== PLAYER_HALF_HEIGHT) {
+      this.physics.world.removeCollider(this.collider, true);
+      this.collider = this.physics.world.createCollider(
+        this.physics.rapier.ColliderDesc.capsule(PLAYER_HALF_HEIGHT, PLAYER_RADIUS),
+        this.body,
+      );
+      this.currentHalfHeight = PLAYER_HALF_HEIGHT;
+    }
     const bodyY = y + PLAYER_HALF_HEIGHT + PLAYER_RADIUS;
     this.body.setTranslation(
       new RAPIER.Vector3(x, bodyY, z),
@@ -129,6 +188,10 @@ export class PlayerController {
 
   hasKey(keyId: string): boolean {
     return this.keys.has(keyId);
+  }
+
+  getKeys(): string[] {
+    return Array.from(this.keys);
   }
 
   giveKey(keyId: string): void {

@@ -4,6 +4,8 @@ import {
   MUZZLE_FLASH_FRAMES,
   getMuzzleFlashOffset,
 } from './muzzle-flash-sprite';
+import { getTextureForSkin } from './weapon-skins';
+import type { WeaponSkin } from './weapon-skins';
 
 export type WeaponType = 'pistol' | 'rifle' | 'shotgun' | 'sniper';
 
@@ -19,6 +21,7 @@ export class WeaponViewModel {
   private flashTexture!: THREE.CanvasTexture;
   private flashTimer = 0;
   private currentType: WeaponType = 'pistol';
+  private currentSkin: WeaponSkin = 'default';
 
   // Animation state
   private recoilOffset = 0;
@@ -37,7 +40,7 @@ export class WeaponViewModel {
     this.group = new THREE.Group();
     this.group.renderOrder = 999;
 
-    this.weaponMesh = this.buildWeaponMesh('pistol');
+    this.weaponMesh = this.buildWeaponMesh('pistol', 'default');
     this.weaponMesh.position.copy(this.restPosition);
     this.group.add(this.weaponMesh);
 
@@ -69,14 +72,14 @@ export class WeaponViewModel {
     return this._scoped;
   }
 
-  switchWeapon(type: WeaponType): void {
-    if (type === this.currentType) return;
+  switchWeapon(type: WeaponType, skin: WeaponSkin = 'default'): void {
     this.currentType = type;
+    this.currentSkin = skin;
     this._scoped = false;
     this.scopeTransition = 0;
 
     this.group.remove(this.weaponMesh);
-    this.weaponMesh = this.buildWeaponMesh(type);
+    this.weaponMesh = this.buildWeaponMesh(type, skin);
     this.group.add(this.weaponMesh);
 
     // Re-attach flash/light
@@ -98,6 +101,17 @@ export class WeaponViewModel {
     this.weaponMesh.position.copy(this.restPosition);
   }
 
+  /** Refresh current weapon mesh with a new skin (same type). */
+  setSkin(skin: WeaponSkin): void {
+    this.currentSkin = skin;
+    this.group.remove(this.weaponMesh);
+    this.weaponMesh = this.buildWeaponMesh(this.currentType, skin);
+    this.group.add(this.weaponMesh);
+    this.weaponMesh.position.copy(this.restPosition);
+    this.weaponMesh.add(this.muzzleFlash);
+    this.weaponMesh.add(this.muzzleLight);
+  }
+
   setScoped(scoped: boolean): void {
     this._scoped = scoped;
   }
@@ -111,7 +125,7 @@ export class WeaponViewModel {
     this.flashTimer = 0.05;
   }
 
-  update(dt: number, isMoving: boolean): void {
+  update(dt: number, isMoving: boolean, isSprinting = false): void {
     // Scope transition
     const targetScope = this._scoped ? 1 : 0;
     this.scopeTransition += (targetScope - this.scopeTransition) * dt * 10;
@@ -121,13 +135,13 @@ export class WeaponViewModel {
     const recoilZ = this.recoilOffset * 0.06;
     const recoilY = this.recoilOffset * 0.03;
 
-    // Bob
+    // Bob (stronger when sprinting)
     if (isMoving) {
-      this.bobPhase += dt * 10;
+      this.bobPhase += dt * (isSprinting ? 14 : 10);
     } else {
       this.bobPhase += dt * 2;
     }
-    const bobAmount = isMoving ? 0.012 : 0.003;
+    const bobAmount = isSprinting ? 0.022 : isMoving ? 0.012 : 0.003;
     const bobX = Math.sin(this.bobPhase) * bobAmount;
     const bobY = Math.abs(Math.cos(this.bobPhase)) * bobAmount * 0.7;
 
@@ -174,21 +188,36 @@ export class WeaponViewModel {
     this.swayY += dy * 0.0003;
   }
 
+  /** Build a weapon mesh for preview rendering (inventory thumbnails). Same mesh as in-world. */
+  buildWeaponMeshForPreview(type: WeaponType, skin: WeaponSkin): THREE.Group {
+    return this.buildWeaponMesh(type, skin);
+  }
+
   // ─── Weapon mesh builders ───
 
-  private buildWeaponMesh(type: WeaponType): THREE.Group {
+  private buildWeaponMesh(type: WeaponType, skin: WeaponSkin): THREE.Group {
     switch (type) {
-      case 'rifle': return this.buildRifleMesh();
-      case 'shotgun': return this.buildShotgunMesh();
-      case 'sniper': return this.buildSniperMesh();
-      default: return this.buildPistolMesh();
+      case 'rifle': return this.buildRifleMesh(skin);
+      case 'shotgun': return this.buildShotgunMesh(skin);
+      case 'sniper': return this.buildSniperMesh(skin);
+      default: return this.buildPistolMesh(skin);
     }
   }
 
-  private buildPistolMesh(): THREE.Group {
+  private buildPistolMesh(skin: WeaponSkin): THREE.Group {
     const gun = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.3, metalness: 0.8 });
-    const gripMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.8, metalness: 0.2 });
+    const bodyMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'metal'),
+      color: 0xffffff,
+      roughness: 0.3,
+      metalness: 0.8,
+    });
+    const gripMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'grip'),
+      color: 0xffffff,
+      roughness: 0.8,
+      metalness: 0.2,
+    });
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.22), bodyMat);
     body.position.set(0, 0.04, -0.03); gun.add(body);
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.08, 8), bodyMat);
@@ -200,10 +229,20 @@ export class WeaponViewModel {
     return gun;
   }
 
-  private buildRifleMesh(): THREE.Group {
+  private buildRifleMesh(skin: WeaponSkin): THREE.Group {
     const gun = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.7 });
-    const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.7, metalness: 0.1 });
+    const bodyMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'metalMid'),
+      color: 0xffffff,
+      roughness: 0.3,
+      metalness: 0.7,
+    });
+    const woodMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'wood'),
+      color: 0xffffff,
+      roughness: 0.7,
+      metalness: 0.1,
+    });
     const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.05, 0.3), bodyMat);
     receiver.position.set(0, 0.02, -0.05); gun.add(receiver);
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.2, 8), bodyMat);
@@ -217,10 +256,20 @@ export class WeaponViewModel {
     return gun;
   }
 
-  private buildShotgunMesh(): THREE.Group {
+  private buildShotgunMesh(skin: WeaponSkin): THREE.Group {
     const gun = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.3, metalness: 0.8 });
-    const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4226, roughness: 0.6, metalness: 0.1 });
+    const bodyMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'metal'),
+      color: 0xffffff,
+      roughness: 0.3,
+      metalness: 0.8,
+    });
+    const woodMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'woodMid'),
+      color: 0xffffff,
+      roughness: 0.6,
+      metalness: 0.1,
+    });
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.4, 8), bodyMat);
     barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0.03, -0.2); gun.add(barrel);
     const pump = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.035, 0.1), woodMat);
@@ -234,11 +283,26 @@ export class WeaponViewModel {
     return gun;
   }
 
-  private buildSniperMesh(): THREE.Group {
+  private buildSniperMesh(skin: WeaponSkin): THREE.Group {
     const gun = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.3, metalness: 0.8 });
-    const woodMat = new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 0.6, metalness: 0.1 });
-    const scopeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2, metalness: 0.9 });
+    const bodyMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'metal'),
+      color: 0xffffff,
+      roughness: 0.3,
+      metalness: 0.8,
+    });
+    const woodMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'woodDark'),
+      color: 0xffffff,
+      roughness: 0.6,
+      metalness: 0.1,
+    });
+    const scopeMat = new THREE.MeshStandardMaterial({
+      map: getTextureForSkin(skin, 'scope'),
+      color: 0xffffff,
+      roughness: 0.2,
+      metalness: 0.9,
+    });
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.015, 0.45, 8), bodyMat);
     barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0.03, -0.25); gun.add(barrel);
     const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.2), bodyMat);

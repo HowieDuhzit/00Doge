@@ -25,6 +25,11 @@ export class PhysicsWorld {
     this.world.removeCollider(collider, wakeBodies);
   }
 
+  /** Remove a rigid body from the world (e.g. when an enemy dies so the player doesn't get stuck on corpses). */
+  removeRigidBody(body: RAPIER.RigidBody): void {
+    this.world.removeRigidBody(body);
+  }
+
   /** Create a static cuboid collider (walls, floors, etc.) */
   createStaticCuboid(
     hx: number,
