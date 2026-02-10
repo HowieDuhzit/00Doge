@@ -19,7 +19,7 @@ export function createAlertState(manager: EnemyManager): State<EnemyBase> {
 
     enter(enemy) {
       timer = ALERT_DURATION;
-      enemy.sprite.play('alert');
+      enemy.model.play('alert');
       // Turn toward last known player position
       if (enemy.lastKnownPlayerPos) {
         enemy.lookAt(enemy.lastKnownPlayerPos);
@@ -48,6 +48,7 @@ export function createAlertState(manager: EnemyManager): State<EnemyBase> {
         const dist = dir.length();
 
         if (dist > 1) {
+          enemy.model.play('walk');  // show walk animation when moving
           dir.normalize();
           enemy.lookAt(enemy.lastKnownPlayerPos);
 
@@ -59,6 +60,7 @@ export function createAlertState(manager: EnemyManager): State<EnemyBase> {
           // Sync physics body
           manager.syncPhysicsBody(enemy);
         } else {
+          enemy.model.play('alert');  // alert pose when stopped
           // Reached last known position, look around
           enemy.targetFacingAngle += dt * 2;
         }

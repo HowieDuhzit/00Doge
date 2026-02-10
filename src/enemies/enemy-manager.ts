@@ -3,6 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { PhysicsWorld } from '../core/physics-world';
 import { EventBus } from '../core/event-bus';
 import { EnemyBase } from './enemy-base';
+import { GUARD_VARIANTS, type GuardVariant } from './sprite/guard-sprite-sheet';
 import { perceivePlayer, type PerceptionResult } from './ai/perception';
 import { createIdleState } from './ai/states/idle-state';
 import { createPatrolState } from './ai/states/patrol-state';
@@ -20,6 +21,8 @@ export interface EnemySpawn {
   facingAngle: number;
   /** Optional patrol path. When set, enemy starts in patrol state. */
   waypoints?: { x: number; z: number }[];
+  /** Optional variant: 'guard', 'soldier', 'officer'. Default: 'guard'. */
+  variant?: string;
 }
 
 export class EnemyManager {
@@ -72,10 +75,14 @@ export class EnemyManager {
 
   /** Spawn an enemy at the given position */
   spawnEnemy(spawn: EnemySpawn): EnemyBase {
+    const variant: GuardVariant = spawn.variant && GUARD_VARIANTS[spawn.variant]
+      ? GUARD_VARIANTS[spawn.variant]
+      : GUARD_VARIANTS.guard;
     const enemy = new EnemyBase(
       this.physics,
       spawn.x, spawn.y, spawn.z,
       spawn.facingAngle,
+      variant,
     );
     if (spawn.waypoints?.length) {
       enemy.waypoints = [...spawn.waypoints];

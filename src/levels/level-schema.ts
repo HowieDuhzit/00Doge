@@ -74,6 +74,8 @@ export interface EnemySpawnDef {
   facingAngle: number;
   /** Optional patrol waypoints (x, z). Enemy walks between these when idle. */
   waypoints?: { x: number; z: number }[];
+  /** Optional variant: 'guard', 'soldier', 'officer'. Default: 'guard'. */
+  variant?: string;
 }
 
 export interface PickupSpawnDef {

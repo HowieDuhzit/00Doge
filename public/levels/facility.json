@@ -23,9 +23,9 @@
     {"x":4,"y":-2,"z":4,"facingAngle":0.5},
     {"x":-4,"y":-2,"z":-3,"facingAngle":3.14159},
     {"x":0,"y":-2,"z":18,"facingAngle":0,"waypoints":[{"x":0,"z":18},{"x":0,"z":22},{"x":0,"z":18}]},
-    {"x":12,"y":-2,"z":20,"facingAngle":-0.5},
+    {"x":12,"y":-2,"z":20,"facingAngle":-0.5,"variant":"soldier"},
     {"x":12,"y":-2,"z":32,"facingAngle":0,"waypoints":[{"x":12,"z":30},{"x":18,"z":30},{"x":18,"z":34},{"x":12,"z":34},{"x":12,"z":30}]},
-    {"x":0,"y":-2,"z":32,"facingAngle":0},
+    {"x":0,"y":-2,"z":32,"facingAngle":0,"variant":"officer"},
     {"x":0,"y":-2,"z":46,"facingAngle":0}
   ],
   "pickups": [

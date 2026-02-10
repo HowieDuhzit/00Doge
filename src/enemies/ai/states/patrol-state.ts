@@ -19,7 +19,7 @@ export function createPatrolState(manager: EnemyManager): State<EnemyBase> {
     enter(enemy) {
       if (enemy.waypoints.length === 0) return;
       waypointIndex = 0;
-      enemy.sprite.play('walk');
+      enemy.model.play('walk');
       const first = enemy.waypoints[0];
       enemy.lookAt(new THREE.Vector3(first.x, enemy.group.position.y, first.z));
     },

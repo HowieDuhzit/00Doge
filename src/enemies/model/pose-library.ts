@@ -70,7 +70,7 @@ const WALK: AnimationDef = {
   loop: true,
   keyframes: [
     {
-      // Right leg forward, left arm forward
+      // Right leg forward, left arm forward — exaggerated march
       duration: 0.15,
       pose: {
         leftShoulderX: -0.4,
@@ -79,26 +79,27 @@ const WALK: AnimationDef = {
         rightShoulderZ: 0.06,
         leftElbowX: -0.2,
         rightElbowX: -0.3,
-        leftHipX: 0.3,
-        rightHipX: -0.5,
-        leftKneeX: 0.1,
-        rightKneeX: 0.5,
+        leftHipX: 0.7,   // left leg back
+        rightHipX: -0.8, // right leg forward
+        leftKneeX: 0.2,
+        rightKneeX: 0.9, // right knee bent (leg swinging forward)
       },
     },
     {
-      // Pass through center
+      // Pass through center — slight drop as both legs under body
       duration: 0.15,
       pose: {
+        hipsY: -0.02,
         leftShoulderX: 0,
         rightShoulderX: 0,
         leftShoulderZ: -0.06,
         rightShoulderZ: 0.06,
         leftElbowX: -0.15,
         rightElbowX: -0.15,
-        leftHipX: 0,
-        rightHipX: 0,
-        leftKneeX: 0.15,
-        rightKneeX: 0.15,
+        leftHipX: 0.2,
+        rightHipX: -0.2,
+        leftKneeX: 0.4,
+        rightKneeX: 0.4,
       },
     },
     {
@@ -111,26 +112,27 @@ const WALK: AnimationDef = {
         rightShoulderZ: 0.06,
         leftElbowX: -0.3,
         rightElbowX: -0.2,
-        leftHipX: -0.5,
-        rightHipX: 0.3,
-        leftKneeX: 0.5,
-        rightKneeX: 0.1,
+        leftHipX: -0.8,  // left leg forward
+        rightHipX: 0.7,  // right leg back
+        leftKneeX: 0.9,  // left knee bent
+        rightKneeX: 0.2,
       },
     },
     {
-      // Pass through center
+      // Pass through center — slight drop
       duration: 0.15,
       pose: {
+        hipsY: -0.02,
         leftShoulderX: 0,
         rightShoulderX: 0,
         leftShoulderZ: -0.06,
         rightShoulderZ: 0.06,
         leftElbowX: -0.15,
         rightElbowX: -0.15,
-        leftHipX: 0,
-        rightHipX: 0,
-        leftKneeX: 0.15,
-        rightKneeX: 0.15,
+        leftHipX: -0.2,
+        rightHipX: 0.2,
+        leftKneeX: 0.4,
+        rightKneeX: 0.4,
       },
     },
   ],

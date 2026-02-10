@@ -16,7 +16,7 @@ export function createIdleState(manager: EnemyManager): State<EnemyBase> {
     enter(enemy) {
       lookTimer = 2 + Math.random() * 3;
       baseFacing = enemy.facingAngle;
-      enemy.sprite.play('idle');
+      enemy.model.play('idle');
     },
 
     update(enemy, dt) {

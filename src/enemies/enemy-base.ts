@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { PhysicsWorld } from '../core/physics-world';
 import { StateMachine } from './ai/state-machine';
-import { EnemySprite } from './sprite/enemy-sprite';
+import { EnemyModel } from './model/enemy-model';
 import { type GuardVariant, GUARD_VARIANTS } from './sprite/guard-sprite-sheet';
 
 const BODY_RADIUS = 0.3;
@@ -11,7 +11,7 @@ const EYE_HEIGHT = 1.6;
 
 export class EnemyBase {
   readonly group: THREE.Group;
-  readonly sprite: EnemySprite;
+  readonly model: EnemyModel;
   readonly rigidBody: RAPIER.RigidBody;
   readonly collider: RAPIER.Collider;
   readonly stateMachine: StateMachine<EnemyBase>;
@@ -50,14 +50,15 @@ export class EnemyBase {
     this.facingAngle = facingAngle;
     this.targetFacingAngle = facingAngle;
 
-    // Visual mesh group (NO rotation applied — billboard handles visual facing)
+    // Visual mesh group — rotation.y controls facing (3D models rotate with parent)
     this.group = new THREE.Group();
     this.group.position.set(x, y, z);
+    this.group.rotation.y = facingAngle;
 
-    // Sprite (replaces cylinder body + sphere head + box gun)
-    this.sprite = new EnemySprite(variant);
-    this.group.add(this.sprite.mesh);
-    this.group.add(this.sprite.shadowMesh);
+    // Low-poly 3D model
+    this.model = new EnemyModel(variant);
+    this.group.add(this.model.mesh);
+    this.group.add(this.model.shadowMesh);
 
     // Physics body (kinematic — AI controls movement)
     const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
@@ -96,7 +97,7 @@ export class EnemyBase {
     const turnSpeed = 4;
     const step = Math.sign(diff) * Math.min(Math.abs(diff), turnSpeed * dt);
     this.facingAngle += step;
-    // DO NOT set group.rotation.y — billboard handles visual facing
+    this.group.rotation.y = this.facingAngle;
   }
 
   /** Face toward a world position */
@@ -115,8 +116,8 @@ export class EnemyBase {
     if (this.dead) return;
     this.health -= amount;
     this.hitFlashTimer = 0.12;
-    this.sprite.triggerHitFlash();
-    this.sprite.play('hit');
+    this.model.triggerHitFlash();
+    this.model.play('hit');
 
     if (this.health <= 0) {
       this.health = 0;
@@ -127,7 +128,7 @@ export class EnemyBase {
   private die(): void {
     this.dead = true;
     this.deathTimer = 0;
-    this.sprite.play('death');
+    this.model.play('death');
   }
 
   /** Update death animation and hit flash */
@@ -147,20 +148,15 @@ export class EnemyBase {
       this.alertCooldown -= dt;
     }
 
-    // Update sprite animation
-    this.sprite.update(dt);
+    // Update model animation
+    this.model.update(dt);
   }
 
-  update(dt: number, cameraPosition?: THREE.Vector3): void {
+  update(dt: number, _cameraPosition?: THREE.Vector3): void {
     if (!this.dead) {
       this.stateMachine.update(this, dt);
       this.updateFacing(dt);
     }
     this.updateVisuals(dt);
-
-    // Billboard the sprite toward camera
-    if (cameraPosition) {
-      this.sprite.billboardToCamera(cameraPosition, this.group.position);
-    }
   }
 }

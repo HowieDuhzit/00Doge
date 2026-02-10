@@ -25,7 +25,7 @@ export function createAttackState(manager: EnemyManager): State<EnemyBase> {
       lostSightTimer = 0;
       strafeDir = Math.random() > 0.5 ? 1 : -1;
       strafeTimer = 1 + Math.random() * 2;
-      enemy.sprite.play('shoot');
+      enemy.model.play('shoot');
       // Alert nearby enemies immediately
       manager.propagateAlert(enemy);
     },
@@ -74,6 +74,7 @@ export function createAttackState(manager: EnemyManager): State<EnemyBase> {
         pos.x += (toPlayer.x * moveZ + right.x * strafeDir * 0.5 + repulsion.x * 0.8) * MOVE_SPEED * dt;
         pos.z += (toPlayer.z * moveZ + right.z * strafeDir * 0.5 + repulsion.z * 0.8) * MOVE_SPEED * dt;
 
+        enemy.model.play('walk');  // walk animation when moving toward/around player
         manager.syncPhysicsBody(enemy);
       } else {
         // Lost sight of player
@@ -87,6 +88,7 @@ export function createAttackState(manager: EnemyManager): State<EnemyBase> {
             .subVectors(enemy.lastKnownPlayerPos, pos);
           dir.y = 0;
           if (dir.length() > 1) {
+            enemy.model.play('walk');  // walk when chasing last known pos
             dir.normalize();
             pos.x += dir.x * MOVE_SPEED * dt;
             pos.z += dir.z * MOVE_SPEED * dt;
