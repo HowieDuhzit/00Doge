@@ -42,12 +42,13 @@ export class RemotePlayer {
     this.id = id;
     this.username = username;
 
-    // Create player model
+    // Create player model (scale to human size ~1.7m)
     this.model = buildPlayerModel(id);
+    this.model.scale.setScalar(1.25);
     scene.add(this.model);
 
-    // Create blob shadow (simple circle under player)
-    const shadowGeometry = new THREE.CircleGeometry(0.3, 16);
+    // Create blob shadow (scaled to match human-sized player)
+    const shadowGeometry = new THREE.CircleGeometry(0.38, 16);
     const shadowMaterial = new THREE.MeshBasicMaterial({
       color: 0x000000,
       transparent: true,
@@ -76,10 +77,10 @@ export class RemotePlayer {
     const weaponMesh = this.weaponViewModel.buildWeaponMeshForPreview('pistol', 'default');
     setPlayerWeapon(this.model, weaponMesh);
 
-    // Create flashlight (spotlight attached to model)
+    // Create flashlight (spotlight attached to model - close to player, at chest/head height)
     this.flashlight = new THREE.SpotLight(0xffe8cc, 0, 30, Math.PI / 6, 0.35, 1.5);
-    this.flashlight.position.set(0, 1.5, 0); // At head height
-    this.flashlight.target.position.set(0, 1.5, 5); // Point forward (positive Z)
+    this.flashlight.position.set(0, 1.4, 0.15); // At chest height, slightly forward (weapon area)
+    this.flashlight.target.position.set(0, 1.2, 1.5); // Point forward, closer so beam stays near player
     this.model.add(this.flashlight);
     this.model.add(this.flashlight.target);
   }
@@ -162,11 +163,10 @@ export class RemotePlayer {
       );
 
       // Update visual model position using smoothed values
-      // Offset Y position so feet touch ground (model feet are at +0.35 from root,
-      // capsule center is at ~0.9-1.0, total offset ~1.05)
+      // Offset Y so feet touch ground (scaled model: feet ~0.3 from root, capsule center ~1.0)
       this.model.position.set(
         this.smoothedPosition.x,
-        this.smoothedPosition.y - 1.05,
+        this.smoothedPosition.y - 1.3,
         this.smoothedPosition.z
       );
 
@@ -184,9 +184,13 @@ export class RemotePlayer {
       // Update aiming pose (arms raised when recently fired)
       updateAimingPose(this.model);
 
-      // Update weapon if changed
-      if (interpolatedState.currentWeapon !== this.currentWeaponType) {
-        this.currentWeaponType = interpolatedState.currentWeapon;
+      // Update weapon if changed (normalize to canonical type for legacy/alternate names)
+      const raw = interpolatedState.currentWeapon as string;
+      const canonical: WeaponType =
+        raw === 'rifle' || raw === 'shotgun' || raw === 'sniper' ? raw :
+        raw === 'kf7-soviet' ? 'rifle' : raw === 'sniper-rifle' ? 'sniper' : 'pistol';
+      if (canonical !== this.currentWeaponType) {
+        this.currentWeaponType = canonical;
         const weaponMesh = this.weaponViewModel.buildWeaponMeshForPreview(this.currentWeaponType, 'default');
         setPlayerWeapon(this.model, weaponMesh);
       }

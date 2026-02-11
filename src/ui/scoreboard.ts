@@ -1,5 +1,5 @@
 /**
- * Scoreboard UI - Tab key in multiplayer.
+ * Scoreboard UI - Q key in multiplayer (hold to view).
  * Shows K/D ratio, player list, ping for all players.
  * Fallout/Westworld tactical style.
  */
@@ -86,7 +86,7 @@ export class Scoreboard {
       font-size: 12px;
       color: #6a5a4a;
     `;
-    footer.textContent = 'Hold TAB to view · Release to close';
+    footer.textContent = 'Hold Q to view · Release to close';
     this.container.appendChild(footer);
 
     document.body.appendChild(this.container);

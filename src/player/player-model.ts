@@ -196,14 +196,16 @@ export function buildPlayerModel(playerId: string): THREE.Group {
   rightLowerLeg.add(rightBoot);
 
   // Weapon will be added separately via setWeapon() method
-  // Store weapon attachment point (positioned for third-person view, LEFT hand grip)
+  // Store weapon attachment point (positioned in left hand for third-person view)
   root.userData.weaponAttachPoint = {
-    x: -0.26, // LEFT hand (negative X)
-    y: 0.08,  // Hand height (palm position)
-    z: 0.2,   // Grip positioned forward in front of body
-    rotationX: Math.PI / 2, // Point forward
-    rotationY: Math.PI,     // Flip 180 degrees to face forward
-    rotationZ: 0
+    // Attach to left hand - position relative to hand center
+    x: -0.02, // Slight offset (mirror for left hand)
+    y: 0.02,
+    z: 0.06,
+    rotationX: Math.PI / 2,
+    rotationY: Math.PI,
+    rotationZ: 0,
+    attachToLeftHand: true,
   };
 
   // Cast shadows
@@ -222,6 +224,7 @@ export function buildPlayerModel(playerId: string): THREE.Group {
 /**
  * Attach a weapon mesh to the player model.
  * Uses the actual weapon meshes from WeaponViewModel.
+ * Weapon is attached to the left hand so it moves naturally with arm animations.
  */
 export function setPlayerWeapon(model: THREE.Group, weaponMesh: THREE.Group): void {
   const hips = model.children[0];
@@ -230,24 +233,33 @@ export function setPlayerWeapon(model: THREE.Group, weaponMesh: THREE.Group): vo
   // Remove old weapon if exists
   const oldWeapon = model.userData.weapon as THREE.Group | undefined;
   if (oldWeapon) {
-    hips.remove(oldWeapon);
+    const parent = oldWeapon.parent;
+    if (parent) parent.remove(oldWeapon);
   }
 
-  // Attach new weapon
-  const attachPoint = model.userData.weaponAttachPoint;
-  if (attachPoint && weaponMesh) {
-    weaponMesh.position.set(attachPoint.x, attachPoint.y, attachPoint.z);
-    weaponMesh.rotation.set(attachPoint.rotationX, attachPoint.rotationY, attachPoint.rotationZ);
-    weaponMesh.scale.setScalar(0.7); // Scale down for third-person view
+  const attachPoint = model.userData.weaponAttachPoint as {
+    x: number; y: number; z: number;
+    rotationX: number; rotationY: number; rotationZ: number;
+    attachToLeftHand?: boolean;
+  } | undefined;
 
-    // Ensure weapon is on default layer (layer 0) for third-person visibility
-    weaponMesh.traverse((child) => {
-      child.layers.set(0);
-    });
+  if (!attachPoint || !weaponMesh) return;
 
-    hips.add(weaponMesh);
-    model.userData.weapon = weaponMesh;
-  }
+  // Attach to left hand (moves with arm) or hips (legacy)
+  const leftArm = hips.children[5] as THREE.Group;
+  const leftHand = leftArm?.children[1] as THREE.Group;
+  const attachParent = attachPoint.attachToLeftHand && leftHand ? leftHand : hips;
+
+  weaponMesh.position.set(attachPoint.x, attachPoint.y, attachPoint.z);
+  weaponMesh.rotation.set(attachPoint.rotationX, attachPoint.rotationY, attachPoint.rotationZ);
+  weaponMesh.scale.setScalar(0.65); // Scale down for third-person (slightly smaller for hand fit)
+
+  weaponMesh.traverse((child) => {
+    child.layers.set(0);
+  });
+
+  attachParent.add(weaponMesh);
+  model.userData.weapon = weaponMesh;
 }
 
 /**
@@ -270,8 +282,8 @@ export function animatePlayerMovement(model: THREE.Group, time: number, isMoving
   const rightLowerLeg = rightUpperLeg?.children[1] as THREE.Group;
 
   if (isMoving) {
-    // Bob up and down slightly when moving
-    const bobAmount = Math.sin(time * 8) * 0.05;
+    // Subtle bob when moving (reduced to avoid floating appearance)
+    const bobAmount = Math.sin(time * 8) * 0.02;
     hips.position.y = 0.9 + bobAmount;
 
     // Walking cycle phase
@@ -335,9 +347,8 @@ export function playFireAnimation(model: THREE.Group): void {
 
   // Muzzle flash (pooled point light at weapon tip)
   const muzzleFlash = globalLightPool.acquire(0xffaa44, 8, 4, 50);
-  muzzleFlash.position.copy(weapon.position);
-  muzzleFlash.position.z += 0.3; // In front of weapon
-  model.add(muzzleFlash);
+  muzzleFlash.position.set(0, 0, 0.35); // In front of weapon (local to weapon)
+  weapon.add(muzzleFlash); // Attach to weapon so it follows correctly
 
   // Return to original position
   setTimeout(() => {

@@ -178,19 +178,23 @@ export class DestructibleSystem {
    * Destroy a prop by position and type (for multiplayer sync).
    * Returns true if a matching prop was found and destroyed.
    * Call with skipNetworkCallback=true to avoid echoing the destroy event.
+   * Call with silent=true to skip explosions/debris/sounds (for new-joiner sync).
    */
   destroyByPositionAndType(
     position: { x: number; y: number; z: number },
     type: 'crate' | 'crate_metal' | 'barrel',
     tolerance = 0.5,
-    skipNetworkCallback = true
+    skipNetworkCallback = true,
+    silent = false
   ): boolean {
     const eventPos = new THREE.Vector3(position.x, position.y, position.z);
     for (const prop of this.props) {
       if (prop.health > 0 && prop.type === type) {
         const distance = prop.position.distanceTo(eventPos);
         if (distance < tolerance) {
-          if (skipNetworkCallback) {
+          if (silent) {
+            this.removeSilent(prop);
+          } else if (skipNetworkCallback) {
             const orig = this.onPropDestroyedFull;
             this.onPropDestroyedFull = null;
             this.destroy(prop);
@@ -203,6 +207,25 @@ export class DestructibleSystem {
       }
     }
     return false;
+  }
+
+  /**
+   * Remove a prop silently (no explosions, debris, sounds, loot).
+   * Used when syncing destroyed state for new joiners.
+   */
+  private removeSilent(prop: DestructibleProp): void {
+    this.scene.remove(prop.mesh);
+    prop.mesh.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        if (child.material instanceof THREE.Material) child.material.dispose();
+      }
+    });
+    const body = prop.collider.parent();
+    this.physics.removeCollider(prop.collider);
+    if (body) this.physics.removeRigidBody(body);
+    const idx = this.props.indexOf(prop);
+    if (idx >= 0) this.props.splice(idx, 1);
   }
 
   /** Apply damage to a specific prop. */

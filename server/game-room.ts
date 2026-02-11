@@ -32,6 +32,10 @@ export class GameRoom {
   private readonly KILLS_TO_WIN = 25;
   private gameOver = false;
 
+  // Headshot: hit point above head zone (player capsule center ~1.0, head ~1.4–1.7)
+  private readonly HEADSHOT_Y_THRESHOLD = 0.5; // 0.5m above capsule center = head/upper torso
+  private readonly HEADSHOT_MULTIPLIER = 2;
+
   // Destructible sync: track all destroyed props for new joiners
   private destroyedDestructibles: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' }> = [];
   private destroyedPropIds = new Set<string>();
@@ -90,7 +94,20 @@ export class GameRoom {
 
       this.players.delete(id);
       console.log(`[GameRoom] Player ${player.username} (${id}) left. Total players: ${this.players.size}`);
+
+      // When room becomes empty, reset level state so rejoiners get a fresh level
+      if (this.players.size === 0) {
+        this.resetLevelState();
+      }
     }
+  }
+
+  /** Reset destructibles and game state when room becomes empty (for fresh rejoin). */
+  private resetLevelState(): void {
+    this.destroyedDestructibles = [];
+    this.destroyedPropIds.clear();
+    this.gameOver = false;
+    console.log('[GameRoom] Room empty — level state reset for next session');
   }
 
   /**
@@ -229,9 +246,17 @@ export class GameRoom {
         return;
       }
 
-      // Calculate damage
-      const damage = this.getWeaponDamage(event.weaponType);
-      const wasHeadshot = false; // TODO: check hit point height for headshots
+      // Calculate damage (matches single-player weapon stats)
+      let damage = this.getWeaponDamage(event.weaponType);
+      const wasHeadshot = this.isHeadshot(event.hitPoint, victim.position);
+      if (wasHeadshot) {
+        // Sniper and shotgun: 1-shot headshot kills (guaranteed through armor)
+        if (event.weaponType === 'sniper' || event.weaponType === 'shotgun') {
+          damage = 999;
+        } else {
+          damage *= this.HEADSHOT_MULTIPLIER;
+        }
+      }
 
       // Apply damage
       this.applyDamage(victim, damage);
@@ -362,29 +387,41 @@ export class GameRoom {
   }
 
   /**
-   * Get weapon damage values.
+   * Get weapon damage values (matches single-player weapon stats).
    */
   private getWeaponDamage(weaponType: string): number {
     const damages: Record<string, number> = {
-      pistol: 25,
-      rifle: 30,
-      shotgun: 80,
-      sniper: 100,
+      pistol: 25,  // PP7
+      rifle: 25,   // KF7 Soviet
+      shotgun: 12, // per pellet
+      sniper: 80,  // Sniper Rifle
     };
     return damages[weaponType] ?? 25;
   }
 
   /**
-   * Get weapon max range.
+   * Get weapon max range (matches single-player).
    */
   private getWeaponRange(weaponType: string): number {
     const ranges: Record<string, number> = {
-      pistol: 50,
-      rifle: 100,
+      pistol: 60,
+      rifle: 50,
       shotgun: 20,
-      sniper: 200,
+      sniper: 150,
     };
     return ranges[weaponType] ?? 50;
+  }
+
+  /**
+   * Check if hit point is in head zone (same logic as single-player enemies).
+   */
+  private isHeadshot(
+    hitPoint: { x: number; y: number; z: number } | undefined,
+    victimPosition: { x: number; y: number; z: number }
+  ): boolean {
+    if (!hitPoint) return false;
+    const hitY = hitPoint.y - victimPosition.y;
+    return hitY >= this.HEADSHOT_Y_THRESHOLD;
   }
 
   /**
@@ -600,9 +637,7 @@ export class GameRoom {
     }
     this.respawnTimers.clear();
 
-    this.gameOver = false;
+    this.resetLevelState();
     this.players.clear();
-    this.destroyedDestructibles = [];
-    this.destroyedPropIds.clear();
   }
 }

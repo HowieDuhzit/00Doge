@@ -91,12 +91,12 @@ export class HUD {
     this.hudEl.style.display = 'block';
   }
 
-  /** Update controls hint for multiplayer (Tab = Scoreboard, I = Inventory). */
+  /** Update controls hint for multiplayer (Q = Scoreboard, I = Inventory). */
   setMultiplayerHint(enabled: boolean): void {
     const hint = document.getElementById('controls-hint');
     if (hint) {
       hint.textContent = enabled
-        ? 'Tab Scoreboard · I Inventory · Shift Sprint · C Crouch · N NV/Mask · V Flashlight'
+        ? 'Q Scoreboard · I Inventory · Shift Sprint · C Crouch · N NV/Mask · V Flashlight'
         : 'Tab Inventory · Shift Sprint · C Crouch · N NV/Mask · V Flashlight';
     }
   }

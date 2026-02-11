@@ -51,6 +51,16 @@ import { NetworkConfig } from './network/network-config';
 
 const PHYSICS_STEP = 1 / 60;
 
+/** Map weapon name to canonical network type (for weapon fire and player state sync). */
+function getCanonicalWeaponType(weaponName: string): 'pistol' | 'rifle' | 'shotgun' | 'sniper' {
+  const name = weaponName.toLowerCase();
+  if (name.includes('sniper')) return 'sniper';
+  if (name.includes('shotgun')) return 'shotgun';
+  if (name.includes('soviet') || name.includes('rifle')) return 'rifle';
+  if (name.includes('pistol') || name.includes('pp7')) return 'pistol';
+  return 'pistol';
+}
+
 export interface GameOptions {
   levelMode?: boolean;
   networkMode?: 'local' | 'client';
@@ -234,15 +244,21 @@ export class Game {
     // When player shoots: check if it hit an enemy OR a destructible prop
     const HEADSHOT_MULTIPLIER = 2;
     const HEADSHOT_Y_THRESHOLD = 1.2; // above enemy group.y — head zone is ~1.2–1.7
+    const HEADSHOT_INSTAKILL = 999;   // Sniper/shotgun headshots = 1-shot kill
     this.projectileSystem.onHitCollider = (collider, _point, _normal) => {
       // Check enemies first
       const enemy = this.enemyManager.getEnemyByCollider(collider);
       if (enemy && !enemy.dead) {
         const weapon = this.weaponManager.currentWeapon;
+        const weaponType = getCanonicalWeaponType(weapon.stats.name);
         let dmg = weapon.stats.damage;
         const hitY = _point.y - enemy.group.position.y;
         if (hitY >= HEADSHOT_Y_THRESHOLD) {
-          dmg *= HEADSHOT_MULTIPLIER;
+          if (weaponType === 'sniper' || weaponType === 'shotgun') {
+            dmg = HEADSHOT_INSTAKILL;
+          } else {
+            dmg *= HEADSHOT_MULTIPLIER;
+          }
         }
         enemy.takeDamage(dmg);
         this.hud.flashCrosshair(); // Red flash = hit confirmed
@@ -596,18 +612,7 @@ export class Game {
           }
         }
 
-        // Map weapon name to network weapon type
-        const weaponName = this.weaponManager.currentWeapon.stats.name.toLowerCase();
-        let weaponType: 'pistol' | 'rifle' | 'shotgun' | 'sniper' = 'pistol';
-        if (weaponName.includes('soviet') || weaponName.includes('rifle')) {
-          weaponType = 'rifle';
-        } else if (weaponName.includes('shotgun')) {
-          weaponType = 'shotgun';
-        } else if (weaponName.includes('sniper')) {
-          weaponType = 'sniper';
-        } else if (weaponName.includes('pistol') || weaponName.includes('pp7')) {
-          weaponType = 'pistol';
-        }
+        const weaponType = getCanonicalWeaponType(this.weaponManager.currentWeapon.stats.name);
 
         console.log(`[Game] Sending weapon fire: ${weaponType}, hitPlayerId: ${hitPlayerId ?? 'none'}`);
 
@@ -707,7 +712,8 @@ export class Game {
     for (const d of destroyed) {
       if (this.processedDestructibleIds.has(d.propId)) continue;
       this.processedDestructibleIds.add(d.propId);
-      this.destructibleSystem.destroyByPositionAndType(d.position, d.type, 1.0, true);
+      // Silent=true: no explosions/debris when syncing for new joiners
+      this.destructibleSystem.destroyByPositionAndType(d.position, d.type, 1.0, true, true);
     }
   }
 
@@ -788,15 +794,17 @@ export class Game {
     // Track mission time
     if (this.levelMode) this.missionElapsed += dt;
 
-    // Scoreboard toggle (Tab) - multiplayer only
+    // Scoreboard: hold Q to view, release to close - multiplayer only (Q avoids browser Tab conflict)
     if (this.networkMode === 'client' && this.networkManager) {
-      if (this.input.wasKeyJustPressed('Tab')) {
+      if (this.input.isKeyDown('q')) {
+        if (!this.scoreboard.visible) {
+          document.exitPointerLock();
+          this.scoreboard.show();
+        }
+      } else {
         if (this.scoreboard.visible) {
           this.scoreboard.hide();
           if (this.started) this.input.requestPointerLock();
-        } else {
-          document.exitPointerLock();
-          this.scoreboard.show();
         }
       }
     }
@@ -999,7 +1007,7 @@ export class Game {
           rotation: this.fpsCamera.getYRotation(),
           health: this.player.health,
           armor: this.player.armor,
-          currentWeapon: this.weaponManager.currentWeapon.stats.name.toLowerCase().replace(/\s+/g, '-') as any,
+          currentWeapon: getCanonicalWeaponType(this.weaponManager.currentWeapon.stats.name),
           crouching: this.player.isCrouching,
           isMoving,
           timestamp: now,

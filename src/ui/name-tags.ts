@@ -15,7 +15,7 @@ export class NameTagManager {
   private container: HTMLDivElement;
   private tags: Map<string, HTMLDivElement> = new Map();
   private camera: THREE.PerspectiveCamera;
-  private readonly tagOffset = new THREE.Vector3(0, 1.8, 0); // Above head (model root at feet)
+  private readonly tagOffset = new THREE.Vector3(0, 2.1, 0); // Above head (human-sized remote player)
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;

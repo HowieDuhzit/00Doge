@@ -4,7 +4,7 @@ import { PhysicsWorld } from '../core/physics-world';
 import { WeaponBase } from './weapon-base';
 
 const MAX_DECALS = 50;
-const DECAL_LIFETIME = 10; // seconds
+const DECAL_LIFETIME = 1.5; // seconds - impact effects fade quickly
 
 interface Decal {
   mesh: THREE.Mesh;
