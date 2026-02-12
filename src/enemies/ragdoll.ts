@@ -1,7 +1,7 @@
 /**
  * Ragdoll physics for death animations.
- * Creates dynamic physics bodies connected by spherical joints,
- * then syncs their transforms to the skeleton each frame.
+ * Creates dynamic physics bodies connected by joints: spherical for spine/hips/shoulders,
+ * revolute (hinge) for elbows and knees to prevent unnatural twisting.
  */
 
 import * as THREE from 'three';
@@ -109,8 +109,8 @@ export class Ragdoll {
       const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(this._pos.x, this._pos.y, this._pos.z)
         .setRotation({ x: this._quat.x, y: this._quat.y, z: this._quat.z, w: this._quat.w })
-        .setLinearDamping(1.5)
-        .setAngularDamping(2);
+        .setLinearDamping(2)
+        .setAngularDamping(2.8);
 
       const body = this.physics.world.createRigidBody(bodyDesc);
       const colliderDesc = RAPIER.ColliderDesc.capsule(halfH, radius)
@@ -123,10 +123,25 @@ export class Ragdoll {
 
     const pelvis = this.bodies.get('hips');
     if (pelvis) {
-      pelvis.applyImpulse({ x: 0, y: -3, z: 0 }, true);
+      pelvis.applyImpulse({ x: 0, y: -2, z: 0 }, true);  // gentler collapse
     }
 
     const R = this.physics.rapier;
+    // Hinges: axis in parent body local space; tighter limits to avoid over-bending
+    const HINGE_JOINTS: Record<string, { axis: [number, number, number]; limitsMin: number; limitsMax: number }> = {
+      leftLowerArm: { axis: [1, 0, 0], limitsMin: 0, limitsMax: 1.92 },   // elbow 0–110°
+      rightLowerArm: { axis: [1, 0, 0], limitsMin: 0, limitsMax: 1.92 },
+      leftLowerLeg: { axis: [1, 0, 0], limitsMin: 0, limitsMax: 2.09 },   // knee 0–120°
+      rightLowerLeg: { axis: [1, 0, 0], limitsMin: 0, limitsMax: 2.09 },
+    };
+
+    // Spine segments: much stiffer to resist crumpling (spherical with high stiffness)
+    const SPINE_JOINTS = ['spine', 'chest', 'head'];
+    const JOINT_STIFFNESS = 65;  // stiffer = holds shape better
+    const JOINT_DAMPING = 7;
+    const SPINE_STIFFNESS = 95; // spine resists twist/compress most
+    const SPINE_DAMPING = 9;
+
     for (const [child, parent] of Object.entries(BONE_PARENT)) {
       const body1 = this.bodies.get(parent);
       const body2 = this.bodies.get(child);
@@ -140,10 +155,29 @@ export class Ragdoll {
 
       const anchor1 = new R.Vector3(midX - pos1.x, midY - pos1.y, midZ - pos1.z);
       const anchor2 = new R.Vector3(midX - pos2.x, midY - pos2.y, midZ - pos2.z);
-      const jointData = R.JointData.spherical(anchor1, anchor2);
-      jointData.stiffness = 25;
-      jointData.damping = 3;
-      const joint = this.physics.world.createImpulseJoint(jointData, body1, body2, true);
+
+      const hinge = HINGE_JOINTS[child];
+      const isSpine = SPINE_JOINTS.includes(child);
+      const stiffness = isSpine ? SPINE_STIFFNESS : JOINT_STIFFNESS;
+      const damping = isSpine ? SPINE_DAMPING : JOINT_DAMPING;
+
+      let jointData: RAPIER.JointData;
+      let joint: RAPIER.ImpulseJoint;
+
+      if (hinge) {
+        const axis = new R.Vector3(hinge.axis[0], hinge.axis[1], hinge.axis[2]);
+        jointData = R.JointData.revolute(anchor1, anchor2, axis);
+        jointData.stiffness = stiffness;
+        jointData.damping = damping;
+        joint = this.physics.world.createImpulseJoint(jointData, body1, body2, true);
+        const rev = joint as RAPIER.RevoluteImpulseJoint;
+        if (rev && typeof rev.setLimits === 'function') rev.setLimits(hinge.limitsMin, hinge.limitsMax);
+      } else {
+        jointData = R.JointData.spherical(anchor1, anchor2);
+        jointData.stiffness = stiffness;
+        jointData.damping = damping;
+        joint = this.physics.world.createImpulseJoint(jointData, body1, body2, true);
+      }
       this.joints.push(joint);
     }
   }
