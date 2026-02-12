@@ -223,6 +223,9 @@ export class WeaponManager {
     const weapon = this.currentWeapon;
     const spreadMult = this._scoped ? 0.1 : 1;
 
+    // Play gunshot immediately (before raycast) so it always plays regardless of hit
+    playGunshotWeapon(WEAPON_TYPE_MAP[this.currentIndex]);
+
     let firstHit: { point?: THREE.Vector3; collider?: RAPIER.Collider } | null = null;
     for (let i = 0; i < weapon.stats.raysPerShot; i++) {
       let dir = direction;
@@ -248,7 +251,6 @@ export class WeaponManager {
       }
     }
 
-    playGunshotWeapon(WEAPON_TYPE_MAP[this.currentIndex]);
     this.viewModel.triggerRecoil();
     this.events.emit('weapon:fired', {
       weaponName: weapon.stats.name,

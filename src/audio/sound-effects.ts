@@ -380,6 +380,44 @@ export function playGunshot(): void {
   playGunshotRifle();
 }
 
+/** Flesh/body impact — wet thud when bullet hits enemy. Delayed so gunshot is heard first. */
+export function playFleshImpact(): void {
+  const ctx = getAudioCtx();
+  const delay = 0.04; // Let gunshot transient play first
+  const now = ctx.currentTime + delay;
+
+  // 1. Sharp wet crack — initial impact
+  const crack = makeNoise(ctx, 0.03, 4);
+  const crackLp = ctx.createBiquadFilter();
+  crackLp.type = 'lowpass';
+  crackLp.frequency.setValueAtTime(2000, now);
+  crackLp.frequency.exponentialRampToValueAtTime(400, now + 0.025);
+  const crackG = ctx.createGain();
+  crackG.gain.setValueAtTime(0.2, now);
+  crackG.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+  crack.connect(crackLp);
+  crackLp.connect(crackG);
+  crackG.connect(getSFXDest());
+  crack.start(now);
+  crack.stop(now + 0.04);
+
+  // 2. Wet thud — body of the hit
+  const thud = makeNoise(ctx, 0.06, 2);
+  const thudBp = ctx.createBiquadFilter();
+  thudBp.type = 'bandpass';
+  thudBp.frequency.setValueAtTime(400, now);
+  thudBp.frequency.exponentialRampToValueAtTime(150, now + 0.05);
+  thudBp.Q.value = 1.5;
+  const thudG = ctx.createGain();
+  thudG.gain.setValueAtTime(0.15, now);
+  thudG.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+  thud.connect(thudBp);
+  thudBp.connect(thudG);
+  thudG.connect(getSFXDest());
+  thud.start(now);
+  thud.stop(now + 0.08);
+}
+
 /** Procedural empty click (dry fire) */
 export function playDryFire(): void {
   const ctx = getAudioCtx();

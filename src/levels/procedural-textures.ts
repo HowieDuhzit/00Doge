@@ -887,3 +887,116 @@ export function doorFrameTexture(): THREE.CanvasTexture {
     addNoise(ctx, W, H, 10);
   });
 }
+
+// ─── Blood Splatter Sprites (hit effect decals — Fallout/retro FPS style) ───
+
+function getOrCreateDecal(key: string, width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, width, height);
+  draw(ctx);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  cache.set(key, tex);
+  return tex;
+}
+
+function drawBloodSplatter(ctx: CanvasRenderingContext2D, w: number, h: number, variant: number): void {
+  const cx = w / 2;
+  const cy = h / 2;
+  const seed = variant * 7919; // Prime for variation
+
+  const mainRx = w * (0.18 + (variant % 4) * 0.05);
+  const mainRy = h * (0.16 + (variant % 3) * 0.06);
+  const tilt = (variant * 0.47) % (Math.PI * 0.4);
+
+  // Dark crust edge
+  ctx.fillStyle = 'rgba(55, 8, 6, 1)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, mainRx * 1.15, mainRy * 1.2, tilt, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Outer dried
+  ctx.fillStyle = 'rgba(90, 18, 15, 1)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, mainRx * 0.95, mainRy * 1.0, tilt, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Mid red
+  ctx.fillStyle = 'rgba(140, 28, 24, 1)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, mainRx * 0.65, mainRy * 0.7, tilt, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Bright core
+  ctx.fillStyle = 'rgba(210, 45, 40, 1)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, mainRx * 0.35, mainRy * 0.4, tilt, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Drip trails (2–5 depending on variant)
+  const dripCount = 2 + (variant % 4);
+  for (let i = 0; i < dripCount; i++) {
+    const angle = (seed + i * 1.3) % (Math.PI * 2);
+    const dist = mainRx * (0.4 + (i % 3) * 0.3);
+    const dx = Math.cos(angle) * dist;
+    const dy = Math.sin(angle) * dist * 0.9;
+    const dripR = w * (0.035 + (i % 2) * 0.02);
+    ctx.fillStyle = `rgba(100, 22, 18, ${0.95 - i * 0.08})`;
+    ctx.beginPath();
+    ctx.ellipse(cx + dx, cy + dy, dripR, dripR * 1.4, angle * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Small speckles for detail
+  const speckCount = 3 + (variant % 4);
+  for (let i = 0; i < speckCount; i++) {
+    const sx = (Math.sin(seed + i * 2.7) * 0.5 + 0.5) * mainRx * 1.5 - mainRx * 0.5;
+    const sy = (Math.cos(seed + i * 1.9) * 0.5 + 0.5) * mainRy * 1.5 - mainRy * 0.5;
+    const r = w * 0.015 + (i % 2) * 0.008;
+    ctx.fillStyle = `rgba(70, 15, 12, ${0.8})`;
+    ctx.beginPath();
+    ctx.arc(cx + sx, cy + sy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Impact streaks — elongated spatter rays radiating outward
+  const streakCount = 2 + (variant % 3);
+  for (let i = 0; i < streakCount; i++) {
+    const angle = (seed * 0.7 + i * 2.1) % (Math.PI * 2);
+    const len = mainRx * (0.6 + (i % 2) * 0.4);
+    const sx = Math.cos(angle) * len * 0.5;
+    const sy = Math.sin(angle) * len * 0.4;
+    const sw = w * 0.012;
+    const sh = len * 0.5;
+    ctx.save();
+    ctx.translate(cx + sx, cy + sy);
+    ctx.rotate(angle);
+    ctx.fillStyle = `rgba(80, 16, 14, ${0.85 - i * 0.1})`;
+    ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
+    ctx.restore();
+  }
+}
+
+/** Blood splatter texture for hit decals/particles. variant 0–5 for variety. 128px for sharper detail. */
+export function bloodSplatterTexture(variant: number = 0): THREE.CanvasTexture {
+  const v = Math.max(0, Math.min(5, Math.floor(variant)));
+  return getOrCreateDecal(`blood-splatter-128-${v}`, 128, 128, (ctx) => drawBloodSplatter(ctx, 128, 128, v));
+}
+
+/** All blood splatter variants (for random selection). */
+export function bloodSplatterTextures(): THREE.CanvasTexture[] {
+  return [0, 1, 2, 3, 4, 5].map((i) => bloodSplatterTexture(i));
+}

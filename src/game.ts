@@ -25,11 +25,12 @@ import { ScopeOverlay } from './ui/scope-overlay';
 import { TacticalOverlay } from './ui/tactical-overlay';
 import { DeathOverlay } from './ui/death-overlay';
 import { HitMarker } from './ui/hit-marker';
+import { BloodOverlay } from './ui/blood-overlay';
 import { KillFeed } from './ui/kill-feed';
 import { Scoreboard, type ScoreboardPlayer } from './ui/scoreboard';
 import { NameTagManager } from './ui/name-tags';
 import { GameOverOverlay } from './ui/game-over-overlay';
-import { playDestruction } from './audio/sound-effects';
+import { playDestruction, playFleshImpact } from './audio/sound-effects';
 import { startMusic, stopMusic } from './audio/music';
 import { BriefingScreen } from './ui/briefing-screen';
 import { ObjectivesDisplay } from './ui/objectives-display';
@@ -94,6 +95,7 @@ export class Game {
   private tacticalOverlay: TacticalOverlay;
   private deathOverlay: DeathOverlay;
   private hitMarker: HitMarker;
+  private bloodOverlay: BloodOverlay;
   private killFeed: KillFeed;
   private scoreboard: Scoreboard;
   private nameTagManager: NameTagManager | null = null;
@@ -205,6 +207,7 @@ export class Game {
 
     // Blood splatter system (visual effect for player hits)
     this.bloodSplatterSystem = new BloodSplatterSystem(this.scene);
+    this.bloodSplatterSystem.setDecalCamera(this.fpsCamera.camera);
 
     // Destructible system (crates, barrels)
     this.destructibleSystem = new DestructibleSystem(this.scene, this.physics);
@@ -224,9 +227,10 @@ export class Game {
     this.scopeOverlay = new ScopeOverlay();
     this.tacticalOverlay = new TacticalOverlay();
 
-    // Multiplayer UI (death overlay, hit markers, kill feed, scoreboard)
+    // Multiplayer UI (death overlay, hit markers, blood overlay, kill feed, scoreboard)
     this.deathOverlay = new DeathOverlay();
     this.hitMarker = new HitMarker();
+    this.bloodOverlay = new BloodOverlay();
     this.killFeed = new KillFeed();
     this.scoreboard = new Scoreboard();
     this.gameOverOverlay = new GameOverOverlay();
@@ -270,6 +274,18 @@ export class Game {
         }
         enemy.takeDamage(dmg);
         this.hud.flashCrosshair(); // Red flash = hit confirmed
+        playFleshImpact(); // Impact sound for enemy hit
+
+        // PvE hit marker (same as multiplayer)
+        if (hitY >= HEADSHOT_Y_THRESHOLD) {
+          this.hitMarker.showHeadshot();
+        } else {
+          this.hitMarker.show();
+        }
+
+        // Blood splatter — 3D, attached to enemy (emanates from hit)
+        const hitDir = new THREE.Vector3().subVectors(_point, this.fpsCamera.camera.position).normalize();
+        this.bloodSplatterSystem.spawnOnEnemy(enemy.group, _point.clone(), hitDir, 12);
 
         if (enemy.dead) {
           this.enemyManager.removeEnemyPhysics(enemy); // So player doesn't get stuck on corpses
@@ -457,20 +473,16 @@ export class Game {
           } else {
             this.hitMarker.show();
           }
+          playFleshImpact(); // Impact sound for remote player hit
         }
 
-        // Show blood splatter for remote player hits
+        // Show blood splatter for remote player hits (3D on their model)
         if (!isLocalPlayer && this.remotePlayerManager) {
           const remotePlayer = this.remotePlayerManager.getPlayer(event.victimId);
-          if (remotePlayer) {
+          if (remotePlayer?.model) {
             const position = remotePlayer.getPosition();
-            // Get shooter direction (approximate - from shooter to victim)
-            const shooter = this.remotePlayerManager.getPlayer(event.shooterId);
-            const direction = new THREE.Vector3(0, 0, 1); // Default forward
-            if (shooter) {
-              direction.subVectors(position, shooter.getPosition()).normalize();
-            }
-            this.bloodSplatterSystem.spawn(position, direction, 8);
+            const direction = new THREE.Vector3(0, 0, 1);
+            this.bloodSplatterSystem.spawnOnEnemy(remotePlayer.model, position, direction, 10);
           }
         }
       };
@@ -1008,7 +1020,10 @@ export class Game {
     );
     this.grenadeSystem.update(dt, this.fpsCamera.camera);
 
-    // Blood splatter system: update particle effects
+    // Blood overlay: update 2D splats
+    this.bloodOverlay.update(dt);
+
+    // Blood splatter system: update particle effects (3D — kept for potential use)
     this.bloodSplatterSystem.update(dt);
 
     // Light pool: auto-release expired pooled lights (muzzle flashes, etc.)
