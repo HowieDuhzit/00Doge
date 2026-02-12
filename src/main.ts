@@ -24,7 +24,8 @@ import { LobbyScreen } from './ui/lobby-screen';
 import { SettingsMenu } from './ui/settings-menu';
 import { setEnemyRenderConfig, ENEMY_RENDER_CONFIG } from './enemies/enemy-render-config';
 import { preloadEnemySpriteSheet } from './enemies/sprite/guard-sprite-sheet';
-import { preloadCustomEnemyModel, preloadCustomPlayerModel } from './core/model-loader';
+import { preloadCustomEnemyModel, preloadCustomPlayerModel, loadAndCacheEnemyModelFromBuffer, loadCharacterModelFromBuffer, setCachedPlayerModel, setCachedCharacterModel } from './core/model-loader';
+import { loadPersistedEnemyModel, loadPersistedPlayerModel, loadPersistedCharacterModel } from './core/persisted-models';
 
 const STORAGE_RENDER_MODE = '007remix_enemy_render_mode';
 
@@ -65,16 +66,43 @@ async function init(): Promise<void> {
     // Fallback: baked PNG may not exist; runtime bake will be used
   });
 
-  // Preload custom enemy model (for 3D and 2D sprite baking)
+  // Restore persisted uploaded models (survives reload, works in 2D and 3D)
   const customPath = ENEMY_RENDER_CONFIG.customModelPath;
-  let customModelReady: Promise<void> = Promise.resolve();
-  if (customPath) {
-    customModelReady = preloadCustomEnemyModel(customPath)
-      .then(() => {})
-      .catch((err) => {
+  const customModelReady = (async () => {
+    const persisted = await loadPersistedEnemyModel().catch(() => null);
+    if (persisted) {
+      setEnemyRenderConfig({ customModelPath: undefined });
+      try {
+        await loadAndCacheEnemyModelFromBuffer(persisted.arrayBuffer, persisted.fileName);
+      } catch (e) {
+        console.warn('Persisted enemy model failed to restore:', e);
+      }
+      return;
+    }
+    if (customPath) {
+      await preloadCustomEnemyModel(customPath).catch((err) => {
         console.warn('Custom enemy model failed to load:', err);
       });
-  }
+    }
+  })();
+
+  loadPersistedPlayerModel().then((p) => {
+    if (p) {
+      setEnemyRenderConfig({ customPlayerModelPath: undefined });
+      return loadCharacterModelFromBuffer(p.arrayBuffer, p.fileName).then((char) => {
+        setCachedPlayerModel(char);
+      }).catch((e) => console.warn('Persisted player model failed:', e));
+    }
+  }).catch(() => {});
+
+  loadPersistedCharacterModel().then((p) => {
+    if (p) {
+      setEnemyRenderConfig({ customCharacterModelPath: undefined });
+      return loadCharacterModelFromBuffer(p.arrayBuffer, p.fileName).then((char) => {
+        setCachedCharacterModel(char);
+      }).catch((e) => console.warn('Persisted character model failed:', e));
+    }
+  }).catch(() => {});
 
   // Preload custom player model (for remote player avatars in multiplayer)
   const playerPath = ENEMY_RENDER_CONFIG.customPlayerModelPath;
@@ -122,8 +150,7 @@ async function init(): Promise<void> {
 
   // Quick Play: single room, click to start
   document.getElementById('btn-quick-play')!.addEventListener('click', async () => {
-    const cfg = ENEMY_RENDER_CONFIG;
-    if (cfg.mode === 'sprite' && cfg.customModelPath) await customModelReady;
+    await customModelReady;
     const game = new Game(canvas, physics, {});
     document.getElementById('start-screen')!.style.display = 'none';
     hideCCTVBackground();
@@ -140,8 +167,7 @@ async function init(): Promise<void> {
       btn.textContent = 'LOADING...';
       btn.disabled = true;
       try {
-        const cfg = ENEMY_RENDER_CONFIG;
-        if (cfg.mode === 'sprite' && cfg.customModelPath) await customModelReady;
+        await customModelReady;
         const level = await loadLevel('/levels/facility.json');
         const game = new Game(canvas, physics, { levelMode: true });
         game.showBriefing(level);
@@ -166,6 +192,7 @@ async function init(): Promise<void> {
   const settingsMenu = new SettingsMenu();
   settingsMenu.onBack = () => {
     settingsMenu.hide();
+    setRenderMode(getRenderMode()); // Re-sync so uploaded-model doesn't override 2D/3D choice
     document.getElementById('start-screen')!.style.display = 'flex';
   };
   document.getElementById('btn-settings')?.addEventListener('click', () => {
@@ -182,9 +209,8 @@ async function init(): Promise<void> {
       lobbyScreen.show({
         onJoin: async (username) => {
           try {
-            const cfg = ENEMY_RENDER_CONFIG;
-            if (cfg.mode === 'sprite' && cfg.customModelPath) await customModelReady;
-            if (cfg.customPlayerModelPath) await customPlayerModelReady;
+            await customModelReady;
+            if (ENEMY_RENDER_CONFIG.customPlayerModelPath) await customPlayerModelReady;
             const networkManager = new NetworkManager(username);
             await networkManager.connect();
 

@@ -23,14 +23,19 @@ export interface EnemyRenderConfig {
   customModelPath?: string;
   /** Path to custom player/remote avatar model (GLB or VRM). Omit for procedural. */
   customPlayerModelPath?: string;
+  /** Path to custom character model (generic avatar). Omit for procedural. */
+  customCharacterModelPath?: string;
   /** Folder with standalone animation GLBs (idle.glb, walk.glb, run.glb, death.glb, attack.glb, hit.glb). Uses Mixamo bone names; retargets to VRM. */
   customAnimationsPath?: string;
 }
 
+/** Default enemy model path (used when clearing uploaded model). */
+export const DEFAULT_ENEMY_MODEL_PATH = 'enemies/voyager_1262MOTU.vrm';
+
 export const ENEMY_RENDER_CONFIG: EnemyRenderConfig = {
   mode: 'model',
   spriteSource: 'procedural',
-  customModelPath: 'enemies/voyager_1262MOTU.vrm',
+  customModelPath: DEFAULT_ENEMY_MODEL_PATH,
   customAnimationsPath: 'animations',
 };
 
@@ -40,5 +45,6 @@ export function setEnemyRenderConfig(config: Partial<EnemyRenderConfig>): void {
   if (config.spriteImageUrl !== undefined) ENEMY_RENDER_CONFIG.spriteImageUrl = config.spriteImageUrl;
   if (config.customModelPath !== undefined) ENEMY_RENDER_CONFIG.customModelPath = config.customModelPath;
   if (config.customPlayerModelPath !== undefined) ENEMY_RENDER_CONFIG.customPlayerModelPath = config.customPlayerModelPath;
+  if (config.customCharacterModelPath !== undefined) ENEMY_RENDER_CONFIG.customCharacterModelPath = config.customCharacterModelPath;
   if (config.customAnimationsPath !== undefined) ENEMY_RENDER_CONFIG.customAnimationsPath = config.customAnimationsPath;
 }

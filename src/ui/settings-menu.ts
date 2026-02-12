@@ -6,6 +6,7 @@
 import { GameSettings, type GamepadResponseCurve } from '../core/game-settings';
 import { setMusicVolume } from '../audio/music';
 import { setSFXVolume } from '../audio/sound-effects';
+import { createCharacterModelsPanel } from './character-models-panel';
 
 function applyVolume(): void {
   const m = GameSettings.getVolumeMaster() * GameSettings.getVolumeMusic();
@@ -14,7 +15,7 @@ function applyVolume(): void {
   setSFXVolume(s);
 }
 
-type SettingsTab = 'controls' | 'aim' | 'audio';
+type SettingsTab = 'controls' | 'aim' | 'audio' | 'models';
 
 export class SettingsMenu {
   private overlay: HTMLDivElement;
@@ -73,9 +74,9 @@ export class SettingsMenu {
       font-family: 'Courier New', monospace;
       transition: background 0.2s;
     `;
-    for (const id of ['controls', 'aim', 'audio'] as const) {
+    for (const id of ['controls', 'aim', 'audio', 'models'] as const) {
       const tab = document.createElement('div');
-      tab.textContent = id === 'controls' ? 'CONTROLS' : id === 'aim' ? 'AIM' : 'AUDIO';
+      tab.textContent = id === 'controls' ? 'CONTROLS' : id === 'aim' ? 'AIM' : id === 'audio' ? 'AUDIO' : 'MODELS';
       tab.style.cssText = tabStyle(id === 'controls');
       tab.dataset.tab = id;
       tab.addEventListener('click', () => this.showTab(id));
@@ -146,6 +147,14 @@ export class SettingsMenu {
     this.panels.audio = audioPanel;
     contentWrap.appendChild(audioPanel);
 
+    // MODELS panel
+    const modelsPanel = document.createElement('div');
+    modelsPanel.dataset.panel = 'models';
+    modelsPanel.appendChild(createCharacterModelsPanel(() => {}));
+    modelsPanel.style.display = 'none';
+    this.panels.models = modelsPanel;
+    contentWrap.appendChild(modelsPanel);
+
     this.overlay.appendChild(contentWrap);
 
     const backBtn = this.createButton('BACK');
@@ -161,7 +170,7 @@ export class SettingsMenu {
   }
 
   private showTab(id: SettingsTab): void {
-    for (const tabId of ['controls', 'aim', 'audio'] as const) {
+    for (const tabId of ['controls', 'aim', 'audio', 'models'] as const) {
       const panel = this.panels[tabId];
       const tab = this.tabs[tabId];
       const active = tabId === id;

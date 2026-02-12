@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { buildPlayerModel, buildPlayerModelFromCharacter, animatePlayerMovement, playFireAnimation, updateAimingPose, setPlayerWeapon } from './player-model';
-import { getCachedPlayerModel } from '../core/model-loader';
+import { getCachedAvatarModel } from '../core/model-loader';
 import { InterpolationBuffer } from '../network/interpolation-buffer';
 import type { PlayerStateUpdate } from '../network/network-events';
 import type { PhysicsWorld } from '../core/physics-world';
@@ -43,7 +43,7 @@ export class RemotePlayer {
     this.id = id;
     this.username = username;
 
-    const customChar = getCachedPlayerModel();
+    const customChar = getCachedAvatarModel();
     if (customChar) {
       this.model = buildPlayerModelFromCharacter(id, customChar);
     } else {

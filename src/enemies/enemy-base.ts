@@ -73,9 +73,9 @@ export class EnemyBase {
     const cfg = ENEMY_RENDER_CONFIG;
     if (cfg.mode === 'sprite') {
       let spriteSource: THREE.Texture | GuardVariant;
-      if (cfg.customModelPath) {
-        const gltf = getCachedEnemyModel();
-        spriteSource = gltf ? bakeCustomModelSpriteSheet(gltf) : variant;
+      const cachedModel = getCachedEnemyModel();
+      if (cachedModel) {
+        spriteSource = bakeCustomModelSpriteSheet(cachedModel);
       } else if (cfg.spriteSource === 'baked') {
         spriteSource = bakeGuardSpriteSheet(variant.name);
       } else if (cfg.spriteSource === 'image' && cfg.spriteImageUrl) {
@@ -85,11 +85,9 @@ export class EnemyBase {
         spriteSource = variant;
       }
       this.model = new EnemySprite(spriteSource);
-    } else if (cfg.customModelPath) {
-      const gltf = getCachedEnemyModel();
-      this.model = gltf ? new EnemyCustomModel(gltf) : new EnemyModel(variant);
     } else {
-      this.model = new EnemyModel(variant);
+      const cachedModel = getCachedEnemyModel();
+      this.model = cachedModel ? new EnemyCustomModel(cachedModel) : new EnemyModel(variant);
     }
     this.group.add(this.model.mesh);
     this.group.add(this.model.shadowMesh);

@@ -38,8 +38,18 @@ const gltfLoader = new GLTFLoader();
 const vrmLoader = new GLTFLoader();
 vrmLoader.register((parser) => new VRMLoaderPlugin(parser));
 
+/** Cached custom enemy model (GLTF or VRM) — from path preload */
+let cachedEnemyCharacter: LoadedCharacter | null = null;
+/** Uploaded enemy model (from drag-drop) — takes precedence over path */
+let uploadedEnemyCharacter: LoadedCharacter | null = null;
+/** Cached custom player model for remote players */
+let cachedPlayerCharacter: LoadedCharacter | null = null;
+/** Cached custom character model (fallback/generic avatar) */
+let cachedCharacterCharacter: LoadedCharacter | null = null;
+
 function toUrl(path: string): string {
-  return path.startsWith('/') || path.startsWith('http') ? path : `${MODELS_BASE}${path}`;
+  if (path.startsWith('/') || path.startsWith('http') || path.startsWith('blob:')) return path;
+  return `${MODELS_BASE}${path}`;
 }
 
 /**
@@ -97,11 +107,111 @@ export function loadCharacterModel(path: string): Promise<LoadedCharacter> {
   return loadModel(path);
 }
 
-/** Cached custom enemy model (GLTF or VRM) */
-let cachedEnemyCharacter: LoadedCharacter | null = null;
+/**
+ * Load a character model from an ArrayBuffer (e.g. from drag-and-drop).
+ * Use fileName to detect format: .vrm → VRM, otherwise GLB/GLTF.
+ */
+export function loadCharacterModelFromBuffer(
+  arrayBuffer: ArrayBuffer,
+  fileName: string,
+): Promise<LoadedCharacter> {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  const isVrm = ext === 'vrm';
+  const loader = isVrm ? vrmLoader : gltfLoader;
 
-/** Cached custom player model for remote players (GLTF or VRM) */
-let cachedPlayerCharacter: LoadedCharacter | null = null;
+  return new Promise((resolve, reject) => {
+    loader.parse(
+      arrayBuffer,
+      '',
+      (gltf) => {
+        if (isVrm) {
+          const vrm = gltf.userData.vrm as VRM | undefined;
+          if (!vrm?.scene) {
+            reject(new Error('VRM loaded but userData.vrm or vrm.scene not found'));
+            return;
+          }
+          resolve({
+            kind: 'vrm',
+            vrm,
+            scene: vrm.scene,
+            animations: gltf.animations ?? [],
+          });
+        } else {
+          resolve({
+            kind: 'gltf',
+            scene: gltf.scene,
+            animations: gltf.animations ?? [],
+            scenes: gltf.scenes,
+            cameras: gltf.cameras,
+            asset: gltf.asset,
+          });
+        }
+      },
+      reject,
+    );
+  });
+}
+
+/** Set uploaded enemy model (from drag-drop). Takes precedence over path-based cache. */
+export function setUploadedEnemyModel(char: LoadedCharacter | null): void {
+  uploadedEnemyCharacter = char;
+}
+
+/** Directly set cached player model (used after loading from buffer). */
+export function setCachedPlayerModel(char: LoadedCharacter | null): void {
+  cachedPlayerCharacter = char;
+}
+
+/** Directly set cached character model (used after loading from buffer). */
+export function setCachedCharacterModel(char: LoadedCharacter | null): void {
+  cachedCharacterCharacter = char;
+}
+
+/** Clear uploaded enemy model (revert to path-based default). */
+export function clearCachedEnemyModel(): void {
+  uploadedEnemyCharacter = null;
+}
+
+/** Clear cached player model (revert to default). */
+export function clearCachedPlayerModel(): void {
+  cachedPlayerCharacter = null;
+}
+
+/** Clear cached character model (revert to default). */
+export function clearCachedCharacterModel(): void {
+  cachedCharacterCharacter = null;
+}
+
+/**
+ * Load enemy model from buffer and cache. Merges standalone animations if customAnimationsPath is set.
+ */
+export async function loadAndCacheEnemyModelFromBuffer(
+  arrayBuffer: ArrayBuffer,
+  fileName: string,
+): Promise<LoadedCharacter> {
+  const char = await loadCharacterModelFromBuffer(arrayBuffer, fileName);
+  const animationsPath = (await import('../enemies/enemy-render-config')).ENEMY_RENDER_CONFIG.customAnimationsPath;
+  if (animationsPath) {
+    try {
+      const { loadAndMergeStandaloneAnimations } = await import('./animation-loader');
+      const merged = await loadAndMergeStandaloneAnimations(animationsPath, {
+        scene: char.scene,
+        animations: char.animations,
+        vrm: char.kind === 'vrm' ? char.vrm : undefined,
+      });
+      (char as { animations: THREE.AnimationClip[] }).animations = merged;
+    } catch (e) {
+      console.warn('Standalone animations failed to load for uploaded model:', e);
+    }
+  }
+  uploadedEnemyCharacter = char;
+  return char;
+}
+
+/** Get cached avatar model for remote players (player ?? character). */
+export function getCachedAvatarModel(): LoadedCharacter | null {
+  return cachedPlayerCharacter ?? cachedCharacterCharacter;
+}
 
 /**
  * Preload a custom enemy model for sync use when spawning.
@@ -142,14 +252,19 @@ export function preloadCustomPlayerModel(path: string): Promise<LoadedCharacter>
   });
 }
 
-/** Get cached custom enemy model, or null if not loaded. */
+/** Get cached custom enemy model (uploaded takes precedence), or null if not loaded. */
 export function getCachedEnemyModel(): LoadedCharacter | null {
-  return cachedEnemyCharacter;
+  return uploadedEnemyCharacter ?? cachedEnemyCharacter;
 }
 
 /** Get cached custom player model, or null if not loaded. */
 export function getCachedPlayerModel(): LoadedCharacter | null {
   return cachedPlayerCharacter;
+}
+
+/** Get cached custom character model, or null if not loaded. */
+export function getCachedCharacterModel(): LoadedCharacter | null {
+  return cachedCharacterCharacter;
 }
 
 /** Type guard for LoadedGLTF */
