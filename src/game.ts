@@ -128,6 +128,10 @@ export class Game {
   private readonly _playerVec = new THREE.Vector3();
   private readonly _aimAssistLookDir = new THREE.Vector3();
   private readonly _aimAssistToTarget = new THREE.Vector3();
+  private readonly _hitDir = new THREE.Vector3();
+  private readonly _remoteOrigin = new THREE.Vector3();
+  private readonly _remoteDir = new THREE.Vector3();
+  private readonly _remotePos = new THREE.Vector3();
 
   // Multiplayer networking
   private networkMode: 'local' | 'client';
@@ -284,8 +288,8 @@ export class Game {
         }
 
         // Blood splatter — 3D, attached to enemy (emanates from hit)
-        const hitDir = new THREE.Vector3().subVectors(_point, this.fpsCamera.camera.position).normalize();
-        this.bloodSplatterSystem.spawnOnEnemy(enemy.group, _point.clone(), hitDir, 12);
+        this._hitDir.subVectors(_point, this.fpsCamera.camera.position).normalize();
+        this.bloodSplatterSystem.spawnOnEnemy(enemy.group, _point, this._hitDir, 12);
 
         if (enemy.dead) {
           this.enemyManager.removeEnemyPhysics(enemy); // So player doesn't get stuck on corpses
@@ -449,7 +453,6 @@ export class Game {
               playPositionalGunshot(weaponType, soundPosition, listenerPosition);
             })();
 
-            console.log(`[Game] Remote player ${event.playerId} fired weapon`);
           }
         }
       };
@@ -463,7 +466,6 @@ export class Game {
           // Apply damage to local player
           this.player.takeDamage(event.damage);
           this.damageIndicator.flash();
-          console.log(`[Game] Took ${event.damage} damage from ${event.shooterId}`);
         }
 
         // Show hit marker if we're the shooter
@@ -480,9 +482,9 @@ export class Game {
         if (!isLocalPlayer && this.remotePlayerManager) {
           const remotePlayer = this.remotePlayerManager.getPlayer(event.victimId);
           if (remotePlayer?.model) {
-            const position = remotePlayer.getPosition();
-            const direction = new THREE.Vector3(0, 0, 1);
-            this.bloodSplatterSystem.spawnOnEnemy(remotePlayer.model, position, direction, 10);
+            this._remotePos.copy(remotePlayer.getPosition());
+            this._hitDir.set(0, 0, 1);
+            this.bloodSplatterSystem.spawnOnEnemy(remotePlayer.model, this._remotePos, this._hitDir, 10);
           }
         }
       };
@@ -499,7 +501,6 @@ export class Game {
           const killerPlayer = this.remotePlayerManager?.getPlayer(event.killerId);
           const killerName = killerPlayer?.username ?? 'Unknown';
           this.deathOverlay.show(killerName);
-          console.log(`[Game] You were killed by ${killerName}`);
         } else {
           // Play death animation for remote player
           const victimPlayer = this.remotePlayerManager?.getPlayer(event.victimId);
@@ -540,14 +541,12 @@ export class Game {
           // Hide death overlay
           this.deathOverlay.hide();
 
-          console.log(`[Game] Respawned at (${event.position.x}, ${event.position.y}, ${event.position.z})`);
         } else {
           // Reset remote player after respawn
           const remotePlayer = this.remotePlayerManager?.getPlayer(event.playerId);
           if (remotePlayer) {
             remotePlayer.resetAfterRespawn();
           }
-          console.log(`[Game] Player ${event.playerId} respawned`);
         }
       };
 
@@ -557,10 +556,9 @@ export class Game {
 
         // Don't throw grenade for local player (already thrown locally)
         if (!isLocalPlayer) {
-          const origin = new THREE.Vector3(event.origin.x, event.origin.y, event.origin.z);
-          const direction = new THREE.Vector3(event.direction.x, event.direction.y, event.direction.z);
-          this.grenadeSystem.throw(origin, direction, event.grenadeType);
-          console.log(`[Game] Remote player ${event.playerId} threw ${event.grenadeType} grenade`);
+          this._remoteOrigin.set(event.origin.x, event.origin.y, event.origin.z);
+          this._remoteDir.set(event.direction.x, event.direction.y, event.direction.z);
+          this.grenadeSystem.throw(this._remoteOrigin, this._remoteDir, event.grenadeType);
         }
       };
 
@@ -571,9 +569,9 @@ export class Game {
         // Show explosion visual for all players (server handles damage)
         // Note: local player already spawned explosion via grenadeLanded callback
         if (!isLocalPlayer) {
-          const position = new THREE.Vector3(event.position.x, event.position.y, event.position.z);
+          this._remotePos.set(event.position.x, event.position.y, event.position.z);
           if (event.grenadeType === 'frag') {
-            this.grenadeSystem.spawnExplosion(position);
+            this.grenadeSystem.spawnExplosion(this._remotePos);
           }
           // Gas clouds are already spawned by grenade physics simulation
         }
@@ -588,7 +586,6 @@ export class Game {
           const remotePlayer = this.remotePlayerManager?.getPlayer(event.playerId);
           if (remotePlayer) {
             remotePlayer.setFlashlight(event.isOn);
-            console.log(`[Game] Remote player ${event.playerId} flashlight: ${event.isOn ? 'ON' : 'OFF'}`);
           }
         }
       };
@@ -606,6 +603,7 @@ export class Game {
       // Handle destructible destroyed events (Phase 5)
       this.networkManager.onDestructibleDestroyed = (event) => {
         if (this.processedDestructibleIds.has(event.propId)) return;
+        if (this.processedDestructibleIds.size >= 500) this.processedDestructibleIds.clear();
         this.processedDestructibleIds.add(event.propId);
 
         const destroyed = this.destructibleSystem.destroyByPositionAndType(
@@ -614,12 +612,8 @@ export class Game {
           1.0, // Wider tolerance for position sync
           true
         );
-        if (destroyed) {
-          console.log(`[Game] Destructible ${event.type} destroyed at (${event.position.x}, ${event.position.y}, ${event.position.z})`);
-        }
       };
 
-      console.log('[Game] Multiplayer mode initialized with combat sync');
     }
 
     // Game loop
@@ -637,13 +631,11 @@ export class Game {
           const remotePlayer = this.remotePlayerManager?.getPlayerByCollider(data.hit.collider);
           if (remotePlayer) {
             hitPlayerId = remotePlayer.id;
-            console.log(`[Game] Hit remote player: ${hitPlayerId}`);
           }
         }
 
         const weaponType = getCanonicalWeaponType(this.weaponManager.currentWeapon.stats.name);
 
-        console.log(`[Game] Sending weapon fire: ${weaponType}, hitPlayerId: ${hitPlayerId ?? 'none'}`);
 
         this.networkManager.sendWeaponFire({
           playerId: this.networkManager.playerId!,
@@ -753,6 +745,7 @@ export class Game {
    */
   private syncDestroyedDestructibles(destroyed?: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' }>): void {
     if (!destroyed) return;
+    if (this.processedDestructibleIds.size >= 500) this.processedDestructibleIds.clear();
     for (const d of destroyed) {
       if (this.processedDestructibleIds.has(d.propId)) continue;
       this.processedDestructibleIds.add(d.propId);
@@ -896,6 +889,10 @@ export class Game {
             const key = `${type}:${skin}`;
             let mesh = this.weaponPreviewMeshCache.get(key);
             if (!mesh) {
+              if (this.weaponPreviewMeshCache.size >= 16) {
+                const keys = [...this.weaponPreviewMeshCache.keys()];
+                for (let i = 0; i < keys.length / 2; i++) this.weaponPreviewMeshCache.delete(keys[i]);
+              }
               mesh = this.weaponManager.getPreviewMesh(type, skin);
               this.weaponPreviewMeshCache.set(key, mesh);
             }

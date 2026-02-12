@@ -75,6 +75,7 @@ export class GrenadeSystem {
   private readonly _rayOrigin = new THREE.Vector3();
   private readonly _groundNormal = new THREE.Vector3(0, -1, 0);
   private readonly _cameraPosition = new THREE.Vector3();
+  private readonly _impactPos = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, physics: PhysicsWorld) {
     this.scene = scene;
@@ -189,10 +190,13 @@ export class GrenadeSystem {
     return tex;
   }
 
+  private sharedPuffGeo: THREE.PlaneGeometry | null = null;
+
   private spawnGasCloud(at: THREE.Vector3): void {
     const puffs: SmokePuff[] = [];
     const puffCount = 10;
-    const puffGeo = new THREE.PlaneGeometry(1, 1);
+    if (!this.sharedPuffGeo) this.sharedPuffGeo = new THREE.PlaneGeometry(1, 1);
+    const puffGeo = this.sharedPuffGeo;
 
     for (let i = 0; i < puffCount; i++) {
       const tex = this.getSmokePuffTexture().clone();
@@ -266,17 +270,20 @@ export class GrenadeSystem {
 
       const groundY = this.getGroundY(g.position.x, g.position.y, g.position.z);
       if (g.position.y <= groundY + 0.15) {
+        // Dispose grenade mesh resources (prevents memory leak)
+        g.mesh.geometry.dispose();
+        (g.mesh.material as THREE.Material).dispose();
         this.scene.remove(g.mesh);
         this.thrown.splice(i, 1);
-        const impactPos = new THREE.Vector3(g.position.x, groundY + 0.1, g.position.z);
+        this._impactPos.set(g.position.x, groundY + 0.1, g.position.z);
 
         // Notify callback (for multiplayer sync)
-        this.onGrenadeLanded?.(impactPos, g.type);
+        this.onGrenadeLanded?.(this._impactPos, g.type);
 
         if (g.type === 'gas') {
-          this.spawnGasCloud(impactPos);
+          this.spawnGasCloud(this._impactPos);
         } else {
-          this.spawnExplosion(impactPos);
+          this.spawnExplosion(this._impactPos);
         }
       }
     }
@@ -323,12 +330,11 @@ export class GrenadeSystem {
       }
 
       if (c.remaining <= 0) {
-        // Clean up all puffs
+        // Clean up all puffs (geometry is shared - do NOT dispose; only material/texture)
         for (const p of c.puffs) {
           const m = p.mesh.material as THREE.MeshBasicMaterial;
           if (m.map) m.map.dispose();
           m.dispose();
-          p.mesh.geometry.dispose();
           this.scene.remove(p.mesh);
         }
         this.clouds.splice(i, 1);
