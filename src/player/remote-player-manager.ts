@@ -13,18 +13,12 @@ export class RemotePlayerManager {
   private physics: PhysicsWorld;
   private players: Map<string, RemotePlayer> = new Map();
   private colliderToPlayerId: Map<number, string> = new Map(); // Collider handle -> player ID
-  private localPlayerId: string | null = null;
+  private getLocalPlayerId: () => string | null;
 
-  constructor(scene: THREE.Scene, physics: PhysicsWorld) {
+  constructor(scene: THREE.Scene, physics: PhysicsWorld, getLocalPlayerId: () => string | null) {
     this.scene = scene;
     this.physics = physics;
-  }
-
-  /**
-   * Set the local player's ID (so we don't render ourselves as a remote player).
-   */
-  setLocalPlayerId(playerId: string): void {
-    this.localPlayerId = playerId;
+    this.getLocalPlayerId = getLocalPlayerId ?? (() => null);
   }
 
   /**
@@ -34,10 +28,12 @@ export class RemotePlayerManager {
     // Track which players are in this snapshot
     const activePlayerIds = new Set<string>();
 
+    const localId = this.getLocalPlayerId();
+
     // Update or spawn players
     for (const [playerId, playerState] of Object.entries(snapshot.players)) {
-      // Skip local player
-      if (playerId === this.localPlayerId) continue;
+      // Skip local player - never render our own model as a remote player
+      if (localId && playerId === localId) continue;
 
       activePlayerIds.add(playerId);
 

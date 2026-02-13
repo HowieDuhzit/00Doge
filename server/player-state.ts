@@ -17,6 +17,8 @@ export interface ServerPlayerState {
   connected: boolean;
   kills: number;
   deaths: number;
+  /** Timestamp until which player is invincible after respawn (ms). */
+  invincibleUntil?: number;
 }
 
 /**

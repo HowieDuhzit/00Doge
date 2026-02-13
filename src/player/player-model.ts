@@ -1,6 +1,11 @@
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { globalLightPool } from '../core/light-pool';
 import type { LoadedCharacter } from '../core/model-loader';
+import { isLoadedVRM } from '../core/model-loader';
+import { CustomPlayerAnimator } from './custom-player-animator';
+import { createEnemyWeaponMesh } from '../enemies/model/guard-model-factory';
+import type { EnemyWeaponType } from '../weapons/weapon-stats-map';
 
 /**
  * Creates a low-poly 3D player character model for remote players.
@@ -227,6 +232,7 @@ const TARGET_PLAYER_HEIGHT = 1.7;
 /**
  * Build a player model from a loaded GLB/VRM.
  * Used for remote players when customPlayerModelPath is set.
+ * Uses simple clone — for animated models use buildAnimatedPlayerFromCharacter.
  */
 export function buildPlayerModelFromCharacter(playerId: string, char: LoadedCharacter): THREE.Group {
   const root = new THREE.Group();
@@ -256,6 +262,76 @@ export function buildPlayerModelFromCharacter(playerId: string, char: LoadedChar
   return root;
 }
 
+/**
+ * Build an animated player model from GLB/VRM with SkeletonUtils.clone.
+ * Returns model + animator when animations exist so remote players can animate.
+ */
+export function buildAnimatedPlayerFromCharacter(
+  playerId: string,
+  char: LoadedCharacter,
+): { model: THREE.Group; animator: CustomPlayerAnimator | null } {
+  const root = new THREE.Group();
+  let scene: THREE.Group;
+  try {
+    scene = cloneSkinned(char.scene) as THREE.Group;
+  } catch {
+    scene = char.scene.clone(true) as THREE.Group;
+  }
+
+  fixMaterialsForPlayer(scene);
+
+  const box = new THREE.Box3().setFromObject(scene);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const scale = TARGET_PLAYER_HEIGHT / Math.max(size.y, 0.01);
+  scene.scale.setScalar(scale);
+  scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+
+  root.add(scene);
+
+  // Force layer 0 so camera sees the model
+  scene.traverse((child) => child.layers.set(0));
+
+  root.userData.playerId = playerId;
+  root.userData.isCustomModel = true;
+  const rightHandBone = findRightHandBone(scene, char);
+  root.userData.rightHandBone = rightHandBone ?? undefined;
+  root.userData.weaponAttachPoint = rightHandBone
+    ? { attachToRightHand: true } // z, rotation set when weapon attached
+    : {
+        x: 0, y: 0.9, z: 0.2,
+        rotationX: Math.PI / 2,
+        rotationY: Math.PI,
+        rotationZ: 0,
+        attachToRoot: true,
+      };
+
+  const animator = new CustomPlayerAnimator(scene, char);
+  if (animator.hasAnimations) {
+    animator.play('idle');
+    return { model: root, animator };
+  }
+  return { model: root, animator: null };
+}
+
+function findRightHandBone(mesh: THREE.Object3D, char: LoadedCharacter): THREE.Object3D | null {
+  let handNode: { name: string } | null = null;
+  if (isLoadedVRM(char)) {
+    handNode = char.vrm.humanoid?.getRawBoneNode('rightHand' as never) ?? null;
+    if (!handNode) handNode = char.vrm.humanoid?.getRawBoneNode('rightLowerArm' as never) ?? null;
+  }
+  if (handNode) {
+    const found = mesh.getObjectByName(handNode.name);
+    return found ?? null;
+  }
+  const names = ['RightHand', 'rightHand', 'hand_r', 'mixamorigRightHand', 'Hand_R'];
+  for (const n of names) {
+    const obj = mesh.getObjectByName(n);
+    if (obj) return obj;
+  }
+  return null;
+}
+
 function fixMaterialsForPlayer(obj: THREE.Object3D): void {
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh && child.material) {
@@ -274,17 +350,25 @@ function fixMaterialsForPlayer(obj: THREE.Object3D): void {
  * Attach a weapon mesh to the player model.
  * Uses the actual weapon meshes from WeaponViewModel.
  * Weapon is attached to the left hand so it moves naturally with arm animations.
- * For custom models (attachToRoot), attaches to the model root.
+ * For custom models with rightHandBone, attaches to right hand like enemies (createEnemyWeaponMesh).
+ * For custom models without hand bone (attachToRoot), attaches to the model root.
  */
-export function setPlayerWeapon(model: THREE.Group, weaponMesh: THREE.Group): void {
+export function setPlayerWeapon(
+  model: THREE.Group,
+  weaponMesh: THREE.Group | null | undefined,
+  weaponType?: EnemyWeaponType,
+): void {
   const attachPoint = model.userData.weaponAttachPoint as {
-    x: number; y: number; z: number;
-    rotationX: number; rotationY: number; rotationZ: number;
+    x?: number; y?: number; z?: number;
+    rotationX?: number; rotationY?: number; rotationZ?: number;
     attachToLeftHand?: boolean;
     attachToRoot?: boolean;
+    attachToRightHand?: boolean;
   } | undefined;
 
-  if (!attachPoint || !weaponMesh) return;
+  const rightHandBone = model.userData.rightHandBone as THREE.Object3D | undefined;
+
+  if (!attachPoint) return;
 
   // Remove old weapon if exists
   const oldWeapon = model.userData.weapon as THREE.Group | undefined;
@@ -292,6 +376,21 @@ export function setPlayerWeapon(model: THREE.Group, weaponMesh: THREE.Group): vo
     const parent = oldWeapon.parent;
     if (parent) parent.remove(oldWeapon);
   }
+
+  // Custom model with right hand: use enemy-style attachment (weapon in hand like single-player enemies)
+  if (attachPoint.attachToRightHand && rightHandBone && weaponType) {
+    const weapon = createEnemyWeaponMesh(weaponType);
+    rightHandBone.add(weapon);
+    weapon.traverse((child) => child.layers.set(0));
+    model.userData.weapon = weapon;
+    (model.userData.weaponAttachPoint as Record<string, unknown>).z = weapon.position.z;
+    (model.userData.weaponAttachPoint as Record<string, unknown>).rotationX = weapon.rotation.x;
+    (model.userData.weaponAttachPoint as Record<string, unknown>).rotationY = weapon.rotation.y;
+    (model.userData.weaponAttachPoint as Record<string, unknown>).rotationZ = weapon.rotation.z;
+    return;
+  }
+
+  if (!weaponMesh) return;
 
   let attachParent: THREE.Object3D;
   if (attachPoint.attachToRoot) {
@@ -304,8 +403,12 @@ export function setPlayerWeapon(model: THREE.Group, weaponMesh: THREE.Group): vo
     attachParent = attachPoint.attachToLeftHand && leftHand ? leftHand : hips;
   }
 
-  weaponMesh.position.set(attachPoint.x, attachPoint.y, attachPoint.z);
-  weaponMesh.rotation.set(attachPoint.rotationX, attachPoint.rotationY, attachPoint.rotationZ);
+  weaponMesh.position.set(attachPoint.x ?? 0, attachPoint.y ?? 0.9, attachPoint.z ?? 0.2);
+  weaponMesh.rotation.set(
+    attachPoint.rotationX ?? Math.PI / 2,
+    attachPoint.rotationY ?? Math.PI,
+    attachPoint.rotationZ ?? 0,
+  );
   weaponMesh.scale.setScalar(0.65);
 
   weaponMesh.traverse((child) => {
@@ -390,17 +493,20 @@ export function playFireAnimation(model: THREE.Group): void {
   const weapon = model.userData.weapon as THREE.Group | undefined;
   if (!weapon) return;
 
-  // Store original position for recoil
-  if (!model.userData.weaponAttachPoint) return;
-  const attachPoint = model.userData.weaponAttachPoint;
+  const attachPoint = model.userData.weaponAttachPoint as {
+    z?: number;
+    rotationX?: number;
+    rotationY?: number;
+    rotationZ?: number;
+  } | undefined;
+  const baseZ = attachPoint?.z ?? weapon.position.z;
+  const baseRx = attachPoint?.rotationX ?? weapon.rotation.x;
+  const baseRy = attachPoint?.rotationY ?? weapon.rotation.y;
+  const baseRz = attachPoint?.rotationZ ?? weapon.rotation.z;
 
   // Weapon recoil animation (kick back slightly)
-  weapon.position.z = attachPoint.z - 0.08;
-  weapon.rotation.set(
-    attachPoint.rotationX + 0.15,
-    attachPoint.rotationY,
-    attachPoint.rotationZ
-  );
+  weapon.position.z = baseZ - 0.08;
+  weapon.rotation.set(baseRx + 0.15, baseRy, baseRz);
 
   // Muzzle flash (pooled point light at weapon tip)
   const muzzleFlash = globalLightPool.acquire(0xffaa44, 8, 4, 50);
@@ -409,8 +515,8 @@ export function playFireAnimation(model: THREE.Group): void {
 
   // Return to original position
   setTimeout(() => {
-    weapon.position.z = attachPoint.z;
-    weapon.rotation.set(attachPoint.rotationX, attachPoint.rotationY, attachPoint.rotationZ);
+    weapon.position.z = baseZ;
+    weapon.rotation.set(baseRx, baseRy, baseRz);
   }, 80);
 
   // Track fire time for aiming animation

@@ -79,6 +79,16 @@ class GameServer {
         this.gameRoom.handleGrenadeExplosion(event);
       });
 
+      // Gas damage event - client reports when in gas cloud
+      socket.on('player:gas:damage', (event: any) => {
+        this.gameRoom.handleGasDamage(socket.id, event);
+      });
+
+      // Enemy damage event - client reports when enemy NPC hits player
+      socket.on('player:enemy:damage', (event: any) => {
+        this.gameRoom.handleEnemyDamage(socket.id, event);
+      });
+
       // Flashlight toggle event (Phase 5)
       socket.on('flashlight:toggle', (event: any) => {
         this.gameRoom.handleFlashlightToggle(event);

@@ -12,6 +12,8 @@ import {
   PlayerRespawnEvent,
   GrenadeThrowEvent,
   GrenadeExplosionEvent,
+  GasDamageEvent,
+  EnemyDamageEvent,
   FlashlightToggleEvent,
   DestructibleDestroyedEvent,
   GameOverEvent,
@@ -258,6 +260,24 @@ export class NetworkManager {
   sendGrenadeExplosion(event: GrenadeExplosionEvent): void {
     if (!this.isConnected) return;
     this.socket!.emit(NetworkEventType.GRENADE_EXPLOSION, event);
+  }
+
+  /**
+   * Send gas damage event to server.
+   * Client reports when player is in gas cloud; server applies and broadcasts player:damaged.
+   */
+  sendGasDamage(event: GasDamageEvent): void {
+    if (!this.isConnected) return;
+    this.socket!.emit(NetworkEventType.GAS_DAMAGE, event);
+  }
+
+  /**
+   * Send enemy damage event to server.
+   * Client reports when an enemy NPC hits the player; server applies and broadcasts player:damaged.
+   */
+  sendEnemyDamage(event: EnemyDamageEvent): void {
+    if (!this.isConnected) return;
+    this.socket!.emit(NetworkEventType.ENEMY_DAMAGE, event);
   }
 
   /**

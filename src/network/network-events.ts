@@ -127,6 +127,26 @@ export interface GrenadeExplosionEvent {
 }
 
 /**
+ * Gas damage event sent from client to server.
+ * Client reports damage when player is in gas cloud; server applies and broadcasts player:damaged.
+ */
+export interface GasDamageEvent {
+  playerId: string;
+  damage: number;
+  timestamp: number;
+}
+
+/**
+ * Enemy damage event sent from client to server.
+ * Client reports when an enemy NPC hits the player; server applies and broadcasts player:damaged.
+ */
+export interface EnemyDamageEvent {
+  playerId: string;
+  damage: number;
+  timestamp: number;
+}
+
+/**
  * Flashlight toggle event.
  */
 export interface FlashlightToggleEvent {
@@ -176,6 +196,8 @@ export enum NetworkEventType {
   // Equipment events (Phase 5)
   GRENADE_THROW = 'grenade:throw',
   GRENADE_EXPLOSION = 'grenade:explosion',
+  GAS_DAMAGE = 'player:gas:damage',
+  ENEMY_DAMAGE = 'player:enemy:damage',
   FLASHLIGHT_TOGGLE = 'flashlight:toggle',
   DESTRUCTIBLE_DESTROYED = 'destructible:destroyed',
 

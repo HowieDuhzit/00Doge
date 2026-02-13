@@ -25,7 +25,7 @@ import { SettingsMenu } from './ui/settings-menu';
 import { CharacterModelsScreen } from './ui/character-models-screen';
 import { setEnemyRenderConfig, ENEMY_RENDER_CONFIG } from './enemies/enemy-render-config';
 import { preloadEnemySpriteSheet } from './enemies/sprite/guard-sprite-sheet';
-import { preloadCustomEnemyModel, preloadCustomPlayerModel, loadAndCacheEnemyModelFromBuffer, loadCharacterModelFromBuffer, setCachedPlayerModel, setCachedCharacterModel } from './core/model-loader';
+import { preloadCustomEnemyModel, preloadCustomPlayerModel, loadAndCacheEnemyModelFromBuffer, loadAndCachePlayerModelFromBuffer, loadAndCacheCharacterModelFromBuffer } from './core/model-loader';
 import { loadPersistedEnemyModel, loadPersistedPlayerModel, loadPersistedCharacterModel } from './core/persisted-models';
 
 const STORAGE_RENDER_MODE = '007remix_enemy_render_mode';
@@ -90,18 +90,18 @@ async function init(): Promise<void> {
   loadPersistedPlayerModel().then((p) => {
     if (p) {
       setEnemyRenderConfig({ customPlayerModelPath: undefined });
-      return loadCharacterModelFromBuffer(p.arrayBuffer, p.fileName).then((char) => {
-        setCachedPlayerModel(char);
-      }).catch((e) => console.warn('Persisted player model failed:', e));
+      return loadAndCachePlayerModelFromBuffer(p.arrayBuffer, p.fileName).catch((e) =>
+        console.warn('Persisted player model failed:', e)
+      );
     }
   }).catch(() => {});
 
   loadPersistedCharacterModel().then((p) => {
     if (p) {
       setEnemyRenderConfig({ customCharacterModelPath: undefined });
-      return loadCharacterModelFromBuffer(p.arrayBuffer, p.fileName).then((char) => {
-        setCachedCharacterModel(char);
-      }).catch((e) => console.warn('Persisted character model failed:', e));
+      return loadAndCacheCharacterModelFromBuffer(p.arrayBuffer, p.fileName).catch((e) =>
+        console.warn('Persisted character model failed:', e)
+      );
     }
   }).catch(() => {});
 

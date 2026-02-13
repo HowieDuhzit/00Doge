@@ -4,10 +4,9 @@
 
 import {
   loadAndCacheEnemyModelFromBuffer,
-  loadCharacterModelFromBuffer,
+  loadAndCachePlayerModelFromBuffer,
+  loadAndCacheCharacterModelFromBuffer,
   preloadCustomEnemyModel,
-  setCachedPlayerModel,
-  setCachedCharacterModel,
   clearCachedEnemyModel,
   clearCachedPlayerModel,
   clearCachedCharacterModel,
@@ -94,13 +93,11 @@ function createDropZone(
         persistEnemyModel(buf, file.name).catch(() => {});
       } else if (slot === 'player') {
         setEnemyRenderConfig({ customPlayerModelPath: undefined });
-        const char = await loadCharacterModelFromBuffer(buf, file.name);
-        setCachedPlayerModel(char);
+        await loadAndCachePlayerModelFromBuffer(buf, file.name);
         persistPlayerModel(buf, file.name).catch(() => {});
       } else {
         setEnemyRenderConfig({ customCharacterModelPath: undefined });
-        const char = await loadCharacterModelFromBuffer(buf, file.name);
-        setCachedCharacterModel(char);
+        await loadAndCacheCharacterModelFromBuffer(buf, file.name);
         persistCharacterModel(buf, file.name).catch(() => {});
       }
       updateStatus();

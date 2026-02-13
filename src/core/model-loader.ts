@@ -243,13 +243,79 @@ export async function preloadCustomEnemyModel(path: string): Promise<LoadedChara
 
 /**
  * Preload a custom player model for remote player avatars.
- * Supports .glb/.gltf and .vrm
+ * Supports .glb/.gltf and .vrm.
+ * Merges standalone animations from customAnimationsPath (same as enemies) so remote players animate.
  */
-export function preloadCustomPlayerModel(path: string): Promise<LoadedCharacter> {
-  return loadCharacterModel(path).then((char) => {
-    cachedPlayerCharacter = char;
-    return char;
-  });
+export async function preloadCustomPlayerModel(path: string): Promise<LoadedCharacter> {
+  const char = await loadCharacterModel(path);
+  const animationsPath = (await import('../enemies/enemy-render-config')).ENEMY_RENDER_CONFIG.customAnimationsPath;
+  if (animationsPath) {
+    try {
+      const { loadAndMergeStandaloneAnimations } = await import('./animation-loader');
+      const merged = await loadAndMergeStandaloneAnimations(animationsPath, {
+        scene: char.scene,
+        animations: char.animations,
+        vrm: char.kind === 'vrm' ? char.vrm : undefined,
+      });
+      (char as { animations: THREE.AnimationClip[] }).animations = merged;
+    } catch (e) {
+      console.warn('Standalone animations failed to load for player model:', e);
+    }
+  }
+  cachedPlayerCharacter = char;
+  return char;
+}
+
+/**
+ * Load player model from buffer and cache. Merges standalone animations for remote player animation.
+ */
+export async function loadAndCachePlayerModelFromBuffer(
+  arrayBuffer: ArrayBuffer,
+  fileName: string,
+): Promise<LoadedCharacter> {
+  const char = await loadCharacterModelFromBuffer(arrayBuffer, fileName);
+  const animationsPath = (await import('../enemies/enemy-render-config')).ENEMY_RENDER_CONFIG.customAnimationsPath;
+  if (animationsPath) {
+    try {
+      const { loadAndMergeStandaloneAnimations } = await import('./animation-loader');
+      const merged = await loadAndMergeStandaloneAnimations(animationsPath, {
+        scene: char.scene,
+        animations: char.animations,
+        vrm: char.kind === 'vrm' ? char.vrm : undefined,
+      });
+      (char as { animations: THREE.AnimationClip[] }).animations = merged;
+    } catch (e) {
+      console.warn('Standalone animations failed to load for player model:', e);
+    }
+  }
+  cachedPlayerCharacter = char;
+  return char;
+}
+
+/**
+ * Load character model from buffer and cache. Merges standalone animations for remote player animation.
+ */
+export async function loadAndCacheCharacterModelFromBuffer(
+  arrayBuffer: ArrayBuffer,
+  fileName: string,
+): Promise<LoadedCharacter> {
+  const char = await loadCharacterModelFromBuffer(arrayBuffer, fileName);
+  const animationsPath = (await import('../enemies/enemy-render-config')).ENEMY_RENDER_CONFIG.customAnimationsPath;
+  if (animationsPath) {
+    try {
+      const { loadAndMergeStandaloneAnimations } = await import('./animation-loader');
+      const merged = await loadAndMergeStandaloneAnimations(animationsPath, {
+        scene: char.scene,
+        animations: char.animations,
+        vrm: char.kind === 'vrm' ? char.vrm : undefined,
+      });
+      (char as { animations: THREE.AnimationClip[] }).animations = merged;
+    } catch (e) {
+      console.warn('Standalone animations failed to load for character model:', e);
+    }
+  }
+  cachedCharacterCharacter = char;
+  return char;
 }
 
 /** Get cached custom enemy model (uploaded takes precedence), or null if not loaded. */

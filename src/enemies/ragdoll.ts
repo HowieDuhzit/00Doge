@@ -122,7 +122,9 @@ export class Ragdoll {
     }
 
     const pelvis = this.bodies.get('hips');
-    if (pelvis) {
+    if (!pelvis) {
+      console.warn('[Ragdoll] Hips body not created — bone mapping may not match mesh. Ragdoll may not display correctly.');
+    } else {
       pelvis.applyImpulse({ x: 0, y: -2, z: 0 }, true);  // gentler collapse
     }
 

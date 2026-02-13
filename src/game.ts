@@ -22,6 +22,7 @@ import { NavMesh } from './navmesh/navmesh';
 import { DestructibleSystem } from './levels/destructible-system';
 import { HUD } from './ui/hud';
 import { DamageIndicator } from './ui/damage-indicator';
+import { RespawnFlash } from './ui/respawn-flash';
 import { ScopeOverlay } from './ui/scope-overlay';
 import { TacticalOverlay } from './ui/tactical-overlay';
 import { DeathOverlay } from './ui/death-overlay';
@@ -32,7 +33,7 @@ import { KillFeed } from './ui/kill-feed';
 import { Scoreboard, type ScoreboardPlayer } from './ui/scoreboard';
 import { NameTagManager } from './ui/name-tags';
 import { GameOverOverlay } from './ui/game-over-overlay';
-import { playDestruction, playFleshImpact } from './audio/sound-effects';
+import { playDestruction, playFleshImpact, playRespawnSound } from './audio/sound-effects';
 import { startMusic, stopMusic } from './audio/music';
 import { BriefingScreen } from './ui/briefing-screen';
 import { ObjectivesDisplay } from './ui/objectives-display';
@@ -93,6 +94,7 @@ export class Game {
   private readonly _throwDir = new THREE.Vector3();
   private hud: HUD;
   private damageIndicator: DamageIndicator;
+  private respawnFlash: RespawnFlash | null = null;
   private scopeOverlay: ScopeOverlay;
   private tacticalOverlay: TacticalOverlay;
   private deathOverlay: DeathOverlay;
@@ -152,6 +154,8 @@ export class Game {
   private readonly _deathCameraShakeOffset = new THREE.Vector3();
   private readonly _deathCameraForward = new THREE.Vector3();
   private readonly _deathCameraRollQuat = new THREE.Quaternion();
+  /** Killer name for death overlay when death camera finishes (multiplayer). */
+  private _deathCameraKillerName: string | undefined;
 
   // Multiplayer networking
   private networkMode: 'local' | 'client';
@@ -259,24 +263,45 @@ export class Game {
     this.killFeed = new KillFeed();
     this.scoreboard = new Scoreboard();
     this.gameOverOverlay = new GameOverOverlay();
+    this.respawnFlash = new RespawnFlash();
 
     // Gas damage — mask protects when tactical overlay (NV/gas mask) is on
     this.grenadeSystem.onPlayerInGas = (damage) => {
       if (this.player.isDead()) return;
       if (!this.tacticalOverlay.visible) {
-        this.player.takeDamage(damage);
-        this.damageIndicator.flash();
-        if (this.player.isDead()) this.handlePlayerDeath(undefined);
+        if (this.networkMode === 'client' && this.networkManager) {
+          // Multiplayer: send to server; server applies and broadcasts player:damaged/died
+          this.networkManager.sendGasDamage({
+            playerId: this.networkManager.playerId!,
+            damage,
+            timestamp: performance.now(),
+          });
+        } else {
+          // Single-player: apply locally
+          this.player.takeDamage(damage);
+          this.damageIndicator.flash();
+          if (this.player.isDead()) this.handlePlayerDeath(undefined);
+        }
       }
     };
 
     // When enemy shoots player
     this.enemyManager.onPlayerHit = (damage, fromPos) => {
       if (this.player.isDead()) return;
-      this.player.takeDamage(damage);
-      this.hud.flashCrosshair();
-      this.damageIndicator.flash();
-      if (this.player.isDead()) this.handlePlayerDeath(fromPos);
+      if (this.networkMode === 'client' && this.networkManager) {
+        this.networkManager.sendEnemyDamage({
+          playerId: this.networkManager.playerId!,
+          damage,
+          timestamp: performance.now(),
+        });
+        this.hud.flashCrosshair();
+        this.damageIndicator.flash();
+      } else {
+        this.player.takeDamage(damage);
+        this.hud.flashCrosshair();
+        this.damageIndicator.flash();
+        if (this.player.isDead()) this.handlePlayerDeath(fromPos);
+      }
     };
 
     // When enemy shot hits wall/geometry — show bullet hole and particles
@@ -452,8 +477,11 @@ export class Game {
 
     // Initialize multiplayer components if in network mode
     if (this.networkMode === 'client' && this.networkManager) {
-      this.remotePlayerManager = new RemotePlayerManager(this.scene, this.physics);
-      this.remotePlayerManager.setLocalPlayerId(this.networkManager.playerId ?? '');
+      this.remotePlayerManager = new RemotePlayerManager(
+        this.scene,
+        this.physics,
+        () => this.networkManager?.playerId ?? null
+      );
       this.nameTagManager = new NameTagManager(this.fpsCamera.camera);
 
       // Handle game state snapshots from server
@@ -526,14 +554,14 @@ export class Game {
         const isLocalShooter = event.killerId === this.networkManager?.playerId;
 
         if (isLocalPlayer) {
-          // Mark local player as dead (disables movement)
           this.player.setDead(true);
 
-          // Show death overlay with killer name
-          const killerPlayer = this.remotePlayerManager?.getPlayer(event.killerId);
-          const killerName = killerPlayer?.username ?? 'Unknown';
-          this.deathOverlay.show(killerName);
-          console.log(`[Game] You were killed by ${killerName}`);
+          const killerPlayer = event.killerId ? this.remotePlayerManager?.getPlayer(event.killerId) : null;
+          const killerName = killerPlayer?.username ?? (event.killerId ? 'Unknown' : undefined);
+          const fromPos = killerPlayer?.getPosition();
+
+          this.startDeathCamera(fromPos ? fromPos.clone() : undefined, killerName);
+          console.log(`[Game] You were killed by ${killerName ?? 'environment'}`);
         } else {
           // Play death animation for remote player
           const victimPlayer = this.remotePlayerManager?.getPlayer(event.victimId);
@@ -567,12 +595,12 @@ export class Game {
         const isLocalPlayer = event.playerId === this.networkManager?.playerId;
 
         if (isLocalPlayer) {
-          // Respawn local player (reset health, armor, enable movement)
           this.player.respawn();
           this.player.setPosition(event.position.x, event.position.y, event.position.z);
 
-          // Hide death overlay
           this.deathOverlay.hide();
+          this.respawnFlash?.show();
+          playRespawnSound();
 
           console.log(`[Game] Respawned at (${event.position.x}, ${event.position.y}, ${event.position.z})`);
         } else {
@@ -845,9 +873,32 @@ export class Game {
     this.scoreboard.update(players);
   }
 
+  /** Start death camera: fall to ground, look toward killer. Caller sets onCountdownComplete for single-player. */
+  private startDeathCamera(fromPos?: THREE.Vector3, killerName?: string): void {
+    this._deathCameraKillerName = killerName;
+    this._deathCameraStartPos.copy(this.fpsCamera.camera.position);
+    const pp = this.player.getPosition();
+    const groundY = this.getGroundY(pp.x, pp.y, pp.z);
+    const headAboveGround = 0.22;
+    this._deathCameraTargetPos.set(pp.x, Math.max(groundY + headAboveGround, pp.y - 0.85), pp.z);
+    this.deathCameraTiltSign = Math.random() < 0.5 ? -1 : 1;
+    this.deathCameraShakePhase = Math.random() * 1000;
+    this.fpsCamera.getLookDirection(this._deathCameraLookAtStart);
+    this._deathCameraLookAtStart.multiplyScalar(6).add(this._deathCameraStartPos);
+    if (fromPos) {
+      this._deathCameraLookAtEnd.copy(fromPos);
+      this._deathCameraLookAtEnd.y += 0.25;
+    } else {
+      this._deathCameraLookAtEnd.copy(this._deathCameraLookAtStart);
+    }
+    this.deathCameraT = 0;
+    this.deathCameraAnimating = true;
+    this.lowHealthOverlay.hide();
+  }
+
   /** Handle player death (single-player PvE). Starts death camera, then shows overlay and respawns. */
   private handlePlayerDeath(fromPos?: THREE.Vector3): void {
-    if (this.networkMode === 'client') return; // Multiplayer: server sends respawn
+    if (this.networkMode === 'client') return; // Multiplayer: onPlayerDied handles it
     this.deathOverlay.onCountdownComplete = () => {
       this.deathOverlay.onCountdownComplete = null;
       this.deathOverlay.hide();
@@ -859,28 +910,7 @@ export class Game {
         this.playerSpawnPosition.z,
       );
     };
-    // Start death camera: fall to ground, look up at killer
-    this._deathCameraStartPos.copy(this.fpsCamera.camera.position);
-    const pp = this.player.getPosition();
-    // Find ground to avoid clipping — cast ray down from chest height
-    const groundY = this.getGroundY(pp.x, pp.y, pp.z);
-    const headAboveGround = 0.22; // Min clearance so head doesn't clip
-    this._deathCameraTargetPos.set(pp.x, Math.max(groundY + headAboveGround, pp.y - 0.85), pp.z);
-    this.deathCameraTiltSign = Math.random() < 0.5 ? -1 : 1;
-    this.deathCameraShakePhase = Math.random() * 1000;
-    // Look-at: start = where we were looking, end = killer (so we transition to looking up at them)
-    this.fpsCamera.getLookDirection(this._deathCameraLookAtStart);
-    this._deathCameraLookAtStart.multiplyScalar(6).add(this._deathCameraStartPos);
-    if (fromPos) {
-      this._deathCameraLookAtEnd.copy(fromPos);
-      // Bias slightly above killer's head so we clearly look UP at them
-      this._deathCameraLookAtEnd.y += 0.25;
-    } else {
-      this._deathCameraLookAtEnd.copy(this._deathCameraLookAtStart);
-    }
-    this.deathCameraT = 0;
-    this.deathCameraAnimating = true;
-    this.lowHealthOverlay.hide();
+    this.startDeathCamera(fromPos);
   }
 
   /** Cast ray down to find ground Y (for death camera floor clearance). */
@@ -924,7 +954,8 @@ export class Game {
     if (this.deathCameraT >= 1) {
       this.deathCameraAnimating = false;
       this.lowHealthOverlay.hide();
-      this.deathOverlay.show();
+      this.deathOverlay.show(this._deathCameraKillerName);
+      this._deathCameraKillerName = undefined;
     }
   }
 
@@ -1196,6 +1227,7 @@ export class Game {
 
     // Damage indicator
     this.damageIndicator.update(dt);
+    this.respawnFlash?.update(dt);
 
     // Low health overlay (red vignette at 25 HP and below)
     this.lowHealthOverlay.update(this.player.health);

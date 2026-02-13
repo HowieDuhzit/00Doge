@@ -6,6 +6,8 @@ import type {
   PlayerRespawnEvent,
   GrenadeThrowEvent,
   GrenadeExplosionEvent,
+  GasDamageEvent,
+  EnemyDamageEvent,
   FlashlightToggleEvent,
   DestructibleDestroyedEvent,
   GameOverEvent,
@@ -39,6 +41,12 @@ export class GameRoom {
   // Destructible sync: track all destroyed props for new joiners
   private destroyedDestructibles: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' }> = [];
   private destroyedPropIds = new Set<string>();
+
+  // Gas damage rate limit: ignore if same player sent < 100ms ago
+  private lastGasDamageTime: Map<string, number> = new Map();
+
+  // Enemy damage rate limit: ignore if same player sent < 150ms ago
+  private lastEnemyDamageTime: Map<string, number> = new Map();
 
   /**
    * Spawn points for players (random selection).
@@ -331,13 +339,12 @@ export class GameRoom {
     const player = this.players.get(playerId);
     if (!player) return;
 
-    // Get random spawn point
     const spawnPoint = this.getRandomSpawnPoint();
 
-    // Reset player state
     player.health = 100;
     player.armor = 0;
     player.position = { ...spawnPoint };
+    player.invincibleUntil = Date.now() + 1500; // 1.5s invincibility after respawn
 
     // Broadcast respawn event
     const respawnEvent: PlayerRespawnEvent = {
@@ -364,6 +371,8 @@ export class GameRoom {
    * Apply damage to a player, accounting for armor.
    */
   private applyDamage(player: ServerPlayerState, damage: number): void {
+    if (player.invincibleUntil && Date.now() < player.invincibleUntil) return;
+
     // Armor absorbs 60% of damage
     const armorAbsorption = 0.6;
     const damageToArmor = Math.min(player.armor, damage * armorAbsorption);
@@ -544,6 +553,91 @@ export class GameRoom {
       });
     }
     // Gas grenades handle damage per-frame on client (based on tactical overlay)
+  }
+
+  /**
+   * Handle gas damage event from client.
+   * Client reports when player is in gas cloud; server applies and broadcasts.
+   */
+  handleGasDamage(playerId: string, event: GasDamageEvent): void {
+    const victim = this.players.get(playerId);
+    if (!victim) return;
+    if (victim.health <= 0) return;
+
+    // Rate limit: max 1 gas damage per 100ms per player
+    const now = Date.now();
+    const last = this.lastGasDamageTime.get(playerId) ?? 0;
+    if (now - last < 100) return;
+    this.lastGasDamageTime.set(playerId, now);
+
+    const damage = Math.min(50, Math.max(0.1, event.damage)); // Clamp to prevent abuse
+
+    this.applyDamage(victim, damage);
+
+    const damageEvent: DamageEvent = {
+      shooterId: '', // Environment
+      victimId: playerId,
+      damage,
+      wasHeadshot: false,
+      timestamp: Date.now(),
+    };
+    this.onBroadcast?.('player:damaged', damageEvent);
+
+    if (victim.health <= 0) {
+      victim.deaths += 1;
+
+      const deathEvent: PlayerDeathEvent = {
+        victimId: playerId,
+        killerId: '', // Killed by gas
+        weaponType: 'pistol',
+        timestamp: Date.now(),
+      };
+      this.onBroadcast?.('player:died', deathEvent);
+      console.log(`[GameRoom] Player ${victim.username} killed by gas`);
+      this.scheduleRespawn(playerId);
+    }
+  }
+
+  /**
+   * Handle enemy damage event from client.
+   * Client reports when enemy NPC hits player; server applies and broadcasts.
+   */
+  handleEnemyDamage(playerId: string, event: EnemyDamageEvent): void {
+    const victim = this.players.get(playerId);
+    if (!victim) return;
+    if (victim.health <= 0) return;
+
+    const now = Date.now();
+    const last = this.lastEnemyDamageTime.get(playerId) ?? 0;
+    if (now - last < 150) return;
+    this.lastEnemyDamageTime.set(playerId, now);
+
+    const damage = Math.min(100, Math.max(1, event.damage));
+
+    this.applyDamage(victim, damage);
+
+    const damageEvent: DamageEvent = {
+      shooterId: '', // Environment / enemy
+      victimId: playerId,
+      damage,
+      wasHeadshot: false,
+      timestamp: Date.now(),
+    };
+    this.onBroadcast?.('player:damaged', damageEvent);
+
+    if (victim.health <= 0) {
+      victim.deaths += 1;
+
+      const deathEvent: PlayerDeathEvent = {
+        victimId: playerId,
+        killerId: '', // Killed by enemy
+        weaponType: 'pistol',
+        timestamp: Date.now(),
+      };
+      this.onBroadcast?.('player:died', deathEvent);
+      console.log(`[GameRoom] Player ${victim.username} killed by enemy`);
+      this.scheduleRespawn(playerId);
+    }
   }
 
   /**

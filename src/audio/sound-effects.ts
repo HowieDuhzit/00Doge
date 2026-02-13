@@ -658,6 +658,26 @@ export function playDestruction(type: string): void {
   }
 }
 
+/** Short respawn chime — positive two-tone confirmation when player respawns */
+export function playRespawnSound(): void {
+  const ctx = getAudioCtx();
+  const now = ctx.currentTime;
+
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(440, now);
+  osc.frequency.setValueAtTime(554, now + 0.08);
+  osc.frequency.setValueAtTime(660, now + 0.16);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.15, now);
+  g.gain.setValueAtTime(0.15, now + 0.2);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+  osc.connect(g);
+  g.connect(getSFXDest());
+  osc.start(now);
+  osc.stop(now + 0.3);
+}
+
 /** Procedural reload sound (mechanical click-clack) */
 export function playReload(): void {
   const ctx = getAudioCtx();
