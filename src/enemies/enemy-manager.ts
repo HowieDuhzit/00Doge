@@ -7,6 +7,7 @@ import { EnemyBase } from './enemy-base';
 import { GUARD_VARIANTS, type GuardVariant } from './sprite/guard-sprite-sheet';
 import type { EnemyWeaponType } from '../weapons/weapon-stats-map';
 import { perceivePlayer, type PerceptionResult } from './ai/perception';
+import type { NavMesh } from '../navmesh/navmesh';
 import { createIdleState } from './ai/states/idle-state';
 import { createPatrolState } from './ai/states/patrol-state';
 import { createAlertState } from './ai/states/alert-state';
@@ -48,6 +49,9 @@ export class EnemyManager {
   private muzzleFlashPool: THREE.PointLight[] = [];
   private muzzleFlashTimers: number[] = [];
 
+  // Navmesh for pathfinding (set when level loads)
+  private navMesh: NavMesh | null = null;
+
   // Callback for when enemy shoots the player
   onPlayerHit: ((damage: number, fromPos: THREE.Vector3) => void) | null = null;
   /** Called when an enemy shot hits geometry (wall/etc) — for decals and particles */
@@ -78,6 +82,16 @@ export class EnemyManager {
       this.playerFiredRecently = true;
       this.playerFiredTimer = 0.5;
     });
+  }
+
+  /** Set navmesh for pathfinding (called by level builder when level loads). */
+  setNavMesh(nav: NavMesh | null): void {
+    this.navMesh = nav;
+  }
+
+  /** Get navmesh for pathfinding. Returns null if not available (e.g. Quick Play). */
+  getNavMesh(): NavMesh | null {
+    return this.navMesh;
   }
 
   /** Spawn an enemy at the given position */

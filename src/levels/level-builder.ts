@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PhysicsWorld } from '../core/physics-world';
 import type { LevelSchema, RoomDef, PropDef, DoorDef } from './level-schema';
+import type { NavMesh } from '../navmesh/navmesh';
 import { DoorSystem } from './door-system';
 import { TriggerSystem } from './trigger-system';
 import { ObjectiveSystem } from './objective-system';
@@ -14,6 +15,8 @@ import {
   woodCrateTexture,
   metalCrateTexture,
   barrelTexture,
+  snowGroundTexture,
+  mountainWallTexture,
 } from './procedural-textures';
 
 const WALL_THICKNESS = 0.2;
@@ -28,6 +31,8 @@ export interface LevelBuilderDeps {
   pickupSystem: PickupSystem;
   destructibleSystem: DestructibleSystem;
   setPlayerPosition: (x: number, y: number, z: number) => void;
+  /** Navmesh for AI pathfinding. Built from level schema when provided. */
+  navMesh?: NavMesh;
 }
 
 /**
@@ -43,54 +48,55 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
     enemyManager,
     pickupSystem,
     setPlayerPosition,
+    navMesh,
   } = deps;
 
-  // Lights — positioned INSIDE rooms (below ceiling at y≈2.0)
-  const ambient = new THREE.AmbientLight(0x8899aa, 1.8);
+  // Lights — ambient + hemisphere, point lights per room
+  const hasOutdoor = level.rooms.some((r) => r.outdoor);
+  const ambientColor = hasOutdoor ? 0xaaccdd : 0x8899aa;
+  const ambient = new THREE.AmbientLight(ambientColor, hasOutdoor ? 2.2 : 1.8);
   scene.add(ambient);
 
-  // Hemisphere light for natural indoor fill (warm from above, cool from floor bounce)
-  const hemi = new THREE.HemisphereLight(0xddeeff, 0x445544, 0.9);
+  const hemiSky = hasOutdoor ? 0xeef5ff : 0xddeeff;
+  const hemiGround = hasOutdoor ? 0xccdddd : 0x445544;
+  const hemi = new THREE.HemisphereLight(hemiSky, hemiGround, hasOutdoor ? 1.1 : 0.9);
   scene.add(hemi);
 
-  // Point lights per room — placed at y=1.5 (well below ceiling at y≈2.1)
-  const lightPositions: [number, number, number][] = [
-    [0, 1.5, 0],
-    [0, 1.5, 16],
-    [12, 1.5, 16],
-    [12, 1.5, 28],
-    [0, 1.5, 28],
-    [0, 1.5, 42],
-    [0, 1.5, 54],
-  ];
-  for (const [lx, ly, lz] of lightPositions) {
-    const pointLight = new THREE.PointLight(0xffeedd, 80, 25);
+  for (const room of level.rooms) {
+    const [lx, ly, lz] = [room.x, room.y + 1.5, room.z];
+    const pointLight = new THREE.PointLight(
+      room.outdoor ? 0xeeddcc : 0xffeedd,
+      room.outdoor ? 120 : 80,
+      25,
+    );
     pointLight.position.set(lx, ly, lz);
     pointLight.castShadow = true;
     pointLight.shadow.mapSize.set(512, 512);
     scene.add(pointLight);
   }
 
-  // Materials — procedural Canvas textures with optional color tint
+  // Materials — procedural textures
   const floorTex = floorTileTexture();
   const wallTex = concreteWallTexture();
   const ceilTex = ceilingPanelTexture();
+  const snowTex = snowGroundTexture();
+  const mountainTex = mountainWallTexture();
 
-  const floorMat = (color = 0x888888) => {
-    const tex = floorTex.clone();
+  const floorMat = (color = 0x888888, useSnow = false) => {
+    const tex = (useSnow ? snowTex : floorTex).clone();
     tex.needsUpdate = true;
-    tex.repeat.set(3, 3);
+    tex.repeat.set(useSnow ? 4 : 3, useSnow ? 4 : 3);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    return new THREE.MeshStandardMaterial({ map: tex, color, roughness: 0.8, metalness: 0.2 });
+    return new THREE.MeshStandardMaterial({ map: tex, color, roughness: useSnow ? 0.9 : 0.8, metalness: 0.2 });
   };
-  const wallMat = (color = 0x999999) => {
-    const tex = wallTex.clone();
+  const wallMat = (color = 0x999999, useMountain = false) => {
+    const tex = (useMountain ? mountainTex : wallTex).clone();
     tex.needsUpdate = true;
-    tex.repeat.set(3, 1);
+    tex.repeat.set(useMountain ? 2 : 3, useMountain ? 2 : 1);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    return new THREE.MeshStandardMaterial({ map: tex, color, roughness: 0.7, metalness: 0.1 });
+    return new THREE.MeshStandardMaterial({ map: tex, color, roughness: useMountain ? 0.85 : 0.7, metalness: 0.1 });
   };
   const ceilingMat = (_color = 0x888888) => {
     const tex = ceilTex.clone();
@@ -101,9 +107,14 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
     return new THREE.MeshStandardMaterial({ map: tex, color: _color, roughness: 0.9, metalness: 0 });
   };
 
-  // Build each room (pass doors so we can leave gaps)
-  for (const room of level.rooms) {
-    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat);
+  // Build indoor rooms first (so their floors render on top), then outdoor
+  const indoorRooms = level.rooms.filter((r) => !r.outdoor);
+  const outdoorRooms = level.rooms.filter((r) => r.outdoor);
+  for (const room of indoorRooms) {
+    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, null);
+  }
+  for (const room of outdoorRooms) {
+    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, indoorRooms);
   }
 
   // Doors
@@ -155,44 +166,118 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
 
   // Objectives
   objectiveSystem.load(level.objectives);
+
+  // Navmesh for AI pathfinding
+  if (navMesh) {
+    navMesh.build(level);
+    enemyManager.setNavMesh(navMesh);
+  }
 }
 
 const DOOR_WALL_TOLERANCE = 2;
+
+/** Compute floor rectangles for outdoor room, subtracting overlapping indoor rooms */
+function getOutdoorFloorRects(
+  room: RoomDef,
+  indoorRooms: RoomDef[],
+): { cx: number; cz: number; w: number; d: number }[] {
+  const hw = room.width / 2;
+  const hd = room.depth / 2;
+  const ox1 = room.x - hw;
+  const ox2 = room.x + hw;
+  const oz1 = room.z - hd;
+  const oz2 = room.z + hd;
+
+  let rects: { x1: number; z1: number; x2: number; z2: number }[] = [{ x1: ox1, z1: oz1, x2: ox2, z2: oz2 }];
+
+  for (const ind of indoorRooms) {
+    const ihw = ind.width / 2;
+    const ihd = ind.depth / 2;
+    const ix1 = ind.x - ihw;
+    const ix2 = ind.x + ihw;
+    const iz1 = ind.z - ihd;
+    const iz2 = ind.z + ihd;
+
+    const newRects: typeof rects = [];
+    for (const r of rects) {
+      const overlapX1 = Math.max(r.x1, ix1);
+      const overlapX2 = Math.min(r.x2, ix2);
+      const overlapZ1 = Math.max(r.z1, iz1);
+      const overlapZ2 = Math.min(r.z2, iz2);
+      if (overlapX1 >= overlapX2 || overlapZ1 >= overlapZ2) {
+        newRects.push(r);
+        continue;
+      }
+      if (r.x1 < overlapX1) newRects.push({ x1: r.x1, z1: r.z1, x2: overlapX1, z2: r.z2 });
+      if (overlapX2 < r.x2) newRects.push({ x1: overlapX2, z1: r.z1, x2: r.x2, z2: r.z2 });
+      if (r.z1 < overlapZ1) newRects.push({ x1: overlapX1, z1: r.z1, x2: overlapX2, z2: overlapZ1 });
+      if (overlapZ2 < r.z2) newRects.push({ x1: overlapX1, z1: overlapZ2, x2: overlapX2, z2: r.z2 });
+    }
+    rects = newRects;
+  }
+
+  return rects.map((r) => ({
+    cx: (r.x1 + r.x2) / 2,
+    cz: (r.z1 + r.z2) / 2,
+    w: r.x2 - r.x1,
+    d: r.z2 - r.z1,
+  }));
+}
 
 function buildRoom(
   room: RoomDef,
   doors: DoorDef[],
   scene: THREE.Scene,
   physics: PhysicsWorld,
-  floorMat: (c?: number) => THREE.Material,
-  wallMat: (c?: number) => THREE.Material,
+  floorMat: (c?: number, useSnow?: boolean) => THREE.Material,
+  wallMat: (c?: number, useMountain?: boolean) => THREE.Material,
   ceilingMat: (c?: number) => THREE.Material,
+  indoorRooms: RoomDef[] | null,
 ): void {
   const { x, y, z, width, depth, height } = room;
-  const fColor = room.floorColor ?? 0x555555;
-  const wColor = room.wallColor ?? 0x666666;
+  const outdoor = room.outdoor ?? false;
+  const fColor = room.floorColor ?? (outdoor ? 0xe8eef4 : 0x555555);
+  const wColor = room.wallColor ?? (outdoor ? 0x7a7e82 : 0x666666);
   const hw = width / 2;
   const hd = depth / 2;
   const hh = height / 2;
+  const floorY = y - height / 2 - WALL_THICKNESS / 2;
 
-  // Floor
-  const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(width, WALL_THICKNESS, depth),
-    floorMat(fColor),
-  );
-  floor.position.set(x, y - height / 2 - WALL_THICKNESS / 2, z);
-  floor.receiveShadow = true;
-  scene.add(floor);
-  physics.createStaticCuboid(width / 2, WALL_THICKNESS / 2, depth / 2, x, y - height / 2 - WALL_THICKNESS / 2, z);
+  // Floor — for outdoor rooms with overlapping indoor rooms, split into non-overlapping rects
+  if (outdoor && indoorRooms && indoorRooms.length > 0) {
+    const floorRects = getOutdoorFloorRects(room, indoorRooms);
+    for (const rect of floorRects) {
+      if (rect.w < 0.5 || rect.d < 0.5) continue;
+      const floor = new THREE.Mesh(
+        new THREE.BoxGeometry(rect.w, WALL_THICKNESS, rect.d),
+        floorMat(fColor, outdoor),
+      );
+      floor.position.set(rect.cx, floorY, rect.cz);
+      floor.receiveShadow = true;
+      scene.add(floor);
+      physics.createStaticCuboid(rect.w / 2, WALL_THICKNESS / 2, rect.d / 2, rect.cx, floorY, rect.cz);
+    }
+  } else {
+    const floor = new THREE.Mesh(
+      new THREE.BoxGeometry(width, WALL_THICKNESS, depth),
+      floorMat(fColor, outdoor),
+    );
+    floor.position.set(x, floorY, z);
+    floor.receiveShadow = true;
+    scene.add(floor);
+    physics.createStaticCuboid(width / 2, WALL_THICKNESS / 2, depth / 2, x, floorY, z);
+  }
 
-  // Ceiling
-  const ceiling = new THREE.Mesh(
-    new THREE.BoxGeometry(width, WALL_THICKNESS, depth),
-    ceilingMat(),
-  );
-  ceiling.position.set(x, y + height / 2 + WALL_THICKNESS / 2, z);
-  scene.add(ceiling);
-  physics.createStaticCuboid(width / 2, WALL_THICKNESS / 2, depth / 2, x, y + height / 2 + WALL_THICKNESS / 2, z);
+  // Ceiling (skip for outdoor rooms — open sky)
+  if (!outdoor) {
+    const ceiling = new THREE.Mesh(
+      new THREE.BoxGeometry(width, WALL_THICKNESS, depth),
+      ceilingMat(),
+    );
+    ceiling.position.set(x, y + height / 2 + WALL_THICKNESS / 2, z);
+    scene.add(ceiling);
+    physics.createStaticCuboid(width / 2, WALL_THICKNESS / 2, depth / 2, x, y + height / 2 + WALL_THICKNESS / 2, z);
+  }
 
   // Walls (4 sides) — split around door openings instead of skipping entire walls
 
@@ -213,7 +298,7 @@ function buildRoom(
     if (halfW < 0.15 && halfD < 0.15) return; // too thin to bother
     const wall = new THREE.Mesh(
       new THREE.BoxGeometry(halfW * 2, halfH * 2, halfD * 2),
-      wallMat(wColor),
+      wallMat(wColor, outdoor),
     );
     wall.position.set(px, py, pz);
     wall.receiveShadow = true;
@@ -287,6 +372,8 @@ function buildRoom(
 }
 
 
+const PROP_FLOOR_OFFSET = 0.03; // Slight elevation to avoid z-fighting with floor
+
 function buildProp(
   prop: PropDef,
   scene: THREE.Scene,
@@ -295,6 +382,7 @@ function buildProp(
 ): void {
   const scale = prop.scale ?? 1;
   const { x, y, z } = prop;
+  const baseY = y + PROP_FLOOR_OFFSET; // Sit on top of floor, avoid clipping
 
   if (prop.type === 'crate' || prop.type === 'crate_metal') {
     const isMetal = prop.type === 'crate_metal';
@@ -305,11 +393,11 @@ function buildProp(
     });
     const size = 1 * scale;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mat);
-    mesh.position.set(x, y + size / 2, z);
+    mesh.position.set(x, baseY + size / 2, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
-    const collider = physics.createStaticCuboid(size / 2, size / 2, size / 2, x, y + size / 2, z);
+    const collider = physics.createStaticCuboid(size / 2, size / 2, size / 2, x, baseY + size / 2, z);
     destructible.register(mesh, collider, prop.type, undefined, size, prop.loot);
   } else if (prop.type === 'barrel') {
     const mat = new THREE.MeshStandardMaterial({
@@ -321,10 +409,10 @@ function buildProp(
       new THREE.CylinderGeometry(0.4 * scale, 0.4 * scale, 1.2 * scale, 12),
       mat,
     );
-    mesh.position.set(x, y + 0.6 * scale, z);
+    mesh.position.set(x, baseY + 0.6 * scale, z);
     mesh.castShadow = true;
     scene.add(mesh);
-    const collider = physics.createStaticCuboid(0.4 * scale, 0.6 * scale, 0.4 * scale, x, y + 0.6 * scale, z);
+    const collider = physics.createStaticCuboid(0.4 * scale, 0.6 * scale, 0.4 * scale, x, baseY + 0.6 * scale, z);
     destructible.register(mesh, collider, 'barrel', undefined, 0.8 * scale, prop.loot);
   }
 }

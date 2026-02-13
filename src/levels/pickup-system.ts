@@ -30,6 +30,7 @@ interface Pickup {
 }
 
 const COLLECT_RADIUS = 1.2;
+const PICKUP_FLOOR_OFFSET = 0.03; // Slight elevation to avoid clipping into floor
 
 // Glow colors per weapon type (used for the pickup point light)
 const WEAPON_GLOW_COLORS: Record<string, number> = {
@@ -63,8 +64,9 @@ export class PickupSystem {
   }
 
   spawn(type: PickupType, x: number, y: number, z: number, amount: number): void {
+    const baseY = y + PICKUP_FLOOR_OFFSET;
     const group = new THREE.Group();
-    group.position.set(x, y, z);
+    group.position.set(x, baseY, z);
 
     const isWeapon = type.startsWith('weapon-');
     let pickupLight: THREE.PointLight | undefined;
@@ -92,7 +94,7 @@ export class PickupSystem {
     this.pickups.push({
       type,
       mesh: group,
-      position: new THREE.Vector3(x, y, z),
+      position: new THREE.Vector3(x, baseY, z),
       collected: false,
       amount,
       bobPhase: Math.random() * Math.PI * 2,
@@ -106,7 +108,7 @@ export class PickupSystem {
 
       // Bob and rotate
       pickup.bobPhase += dt * 3;
-      pickup.mesh.position.y = pickup.position.y + Math.sin(pickup.bobPhase) * 0.1 + 0.15;
+      pickup.mesh.position.y = pickup.position.y + Math.sin(pickup.bobPhase) * 0.06 + 0.06; // bob above floor
       pickup.mesh.rotation.y += dt * 2;
 
       // Pulse glow light intensity

@@ -1,0 +1,212 @@
+{
+  "name": "Mountain Outpost",
+  "briefing": "Neutralize hostiles at the abandoned mountain outpost. The compound has a guard shack and an armory—clear the area, resupply from scattered caches, and reach the extraction point. Expect heavy resistance in the snow.",
+  "rooms": [
+    {
+      "id": "spawn_canyon",
+      "x": -10,
+      "y": 0,
+      "z": -8,
+      "width": 16,
+      "depth": 12,
+      "height": 4,
+      "floorColor": 23031892,
+      "wallColor": 8026746,
+      "outdoor": true
+    },
+    {
+      "id": "main_courtyard",
+      "x": 0,
+      "y": 0,
+      "z": 18,
+      "width": 36,
+      "depth": 40,
+      "height": 4,
+      "floorColor": 23031892,
+      "wallColor": 8026746,
+      "outdoor": true
+    },
+    {
+      "id": "guard_shack",
+      "x": -18,
+      "y": 0,
+      "z": 12,
+      "width": 10,
+      "depth": 12,
+      "height": 4,
+      "floorColor": 4535600,
+      "wallColor": 5591616
+    },
+    {
+      "id": "armory",
+      "x": 18,
+      "y": 0,
+      "z": 12,
+      "width": 16,
+      "depth": 18,
+      "height": 4,
+      "floorColor": 3352388,
+      "wallColor": 4473941
+    },
+    {
+      "id": "extraction_zone",
+      "x": 0,
+      "y": 0,
+      "z": 42,
+      "width": 14,
+      "depth": 8,
+      "height": 4,
+      "floorColor": 23031892,
+      "wallColor": 8026746,
+      "outdoor": true
+    }
+  ],
+  "doors": [
+    {
+      "id": "d_spawn_courtyard",
+      "x": -10,
+      "y": 0,
+      "z": -2,
+      "width": 1.2,
+      "height": 2.1,
+      "axis": "z",
+      "type": "proximity",
+      "proximityRadius": 3
+    },
+    {
+      "id": "d_guard_shack",
+      "x": -13,
+      "y": 0,
+      "z": 12,
+      "width": 1.2,
+      "height": 2.1,
+      "axis": "x",
+      "type": "proximity",
+      "proximityRadius": 2.5
+    },
+    {
+      "id": "d_armory",
+      "x": 10,
+      "y": 0,
+      "z": 12,
+      "width": 1.2,
+      "height": 2.1,
+      "axis": "x",
+      "type": "proximity",
+      "proximityRadius": 2.5
+    },
+    {
+      "id": "d_extraction",
+      "x": 0,
+      "y": 0,
+      "z": 38,
+      "width": 1.2,
+      "height": 2.1,
+      "axis": "z",
+      "type": "proximity",
+      "proximityRadius": 3
+    }
+  ],
+  "playerSpawn": {
+    "x": -10,
+    "y": -2,
+    "z": -8
+  },
+  "enemies": [
+    {
+      "x": -18,
+      "y": -2,
+      "z": 8,
+      "facingAngle": 0.8,
+      "waypoints": [{"x": -18, "z": 8}, {"x": -14, "z": 16}, {"x": -18, "z": 16}, {"x": -18, "z": 8}],
+      "weapon": "pistol"
+    },
+    {
+      "x": -18,
+      "y": -2,
+      "z": 16,
+      "facingAngle": -0.5,
+      "variant": "soldier",
+      "weapon": "rifle"
+    },
+    {
+      "x": 0,
+      "y": -2,
+      "z": 12,
+      "facingAngle": 0,
+      "waypoints": [{"x": -5, "z": 12}, {"x": 5, "z": 12}, {"x": 5, "z": 18}, {"x": -5, "z": 18}, {"x": -5, "z": 12}],
+      "weapon": "rifle"
+    },
+    {
+      "x": 8,
+      "y": -2,
+      "z": 8,
+      "facingAngle": 1.2,
+      "waypoints": [{"x": 8, "z": 8}, {"x": 24, "z": 8}, {"x": 24, "z": 20}, {"x": 8, "z": 20}, {"x": 8, "z": 8}],
+      "weapon": "shotgun"
+    },
+    {
+      "x": 18,
+      "y": -2,
+      "z": 18,
+      "facingAngle": 0,
+      "variant": "officer",
+      "weapon": "pistol"
+    },
+    {
+      "x": -6,
+      "y": -2,
+      "z": 30,
+      "facingAngle": -1.57,
+      "weapon": "sniper"
+    },
+    {
+      "x": 6,
+      "y": -2,
+      "z": 30,
+      "facingAngle": 1.57,
+      "weapon": "rifle"
+    }
+  ],
+  "pickups": [
+    {"type": "weapon-rifle", "x": 22, "y": -2, "z": 14, "amount": 1},
+    {"type": "weapon-shotgun", "x": -16, "y": -2, "z": 14, "amount": 1},
+    {"type": "weapon-sniper", "x": 14, "y": -2, "z": 20, "amount": 1},
+    {"type": "ammo-rifle", "x": 0, "y": -2, "z": 10, "amount": 30},
+    {"type": "ammo-shotgun", "x": -8, "y": -2, "z": 18, "amount": 12},
+    {"type": "ammo-sniper", "x": 22, "y": -2, "z": 8, "amount": 10},
+    {"type": "health", "x": -12, "y": -2, "z": 4, "amount": 25},
+    {"type": "armor", "x": 12, "y": -2, "z": 22, "amount": 50},
+    {"type": "health", "x": 0, "y": -2, "z": 24, "amount": 25},
+    {"type": "ammo-pistol", "x": -4, "y": -2, "z": 28, "amount": 24}
+  ],
+  "objectives": [
+    {"id": "obj1", "title": "Clear the compound of hostiles"},
+    {"id": "obj2", "title": "Reach extraction point"}
+  ],
+  "triggers": [
+    {
+      "id": "t_extraction",
+      "x": 0,
+      "y": -0.5,
+      "z": 42,
+      "halfWidth": 4,
+      "halfDepth": 2,
+      "halfHeight": 1.5,
+      "onEnter": "mission:complete",
+      "once": true
+    }
+  ],
+  "props": [
+    {"type": "crate", "x": -6, "y": -2, "z": 14, "scale": 0.9, "loot": {"type": "ammo-pistol", "amount": 14}},
+    {"type": "crate_metal", "x": 2, "y": -2, "z": 18, "loot": {"type": "ammo-rifle", "amount": 30}},
+    {"type": "barrel", "x": -10, "y": -2, "z": 20},
+    {"type": "crate", "x": 20, "y": -2, "z": 16, "loot": {"type": "health", "amount": 30}},
+    {"type": "crate_metal", "x": 16, "y": -2, "z": 18, "loot": {"type": "armor", "amount": 25}},
+    {"type": "barrel", "x": 8, "y": -2, "z": 28},
+    {"type": "crate", "x": -2, "y": -2, "z": 36, "scale": 0.8, "loot": {"type": "ammo-shotgun", "amount": 8}},
+    {"type": "crate_metal", "x": 4, "y": -2, "z": 38, "loot": {"type": "health", "amount": 25}},
+    {"type": "barrel", "x": -14, "y": -2, "z": 7.5},
+    {"type": "crate", "x": 10, "y": -2, "z": 6, "loot": {"type": "ammo-pistol", "amount": 18}}
+  ]
+}

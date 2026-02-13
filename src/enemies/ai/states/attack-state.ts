@@ -2,16 +2,18 @@ import * as THREE from 'three';
 import type { State } from '../state-machine';
 import type { EnemyBase } from '../../enemy-base';
 import type { EnemyManager } from '../../enemy-manager';
+import { getMoveDirection, type PathFollowState } from '../path-follower';
 
 const ENGAGE_RANGE = 18;
 const PREFERRED_RANGE = 8;
 const MOVE_SPEED = 2;
 const LOSE_SIGHT_TIMEOUT = 3;
-const SHOOT_ANIM_MIN_DURATION = 0.25; // Keep shoot animation visible briefly after firing
+const SHOOT_ANIM_MIN_DURATION = 0.25;
+const CHASE_ARRIVE_RADIUS = 1;
 
 /**
  * Attack state: enemy has spotted the player.
- * Faces player, fires at intervals, strafes slightly.
+ * Faces player, fires at intervals. Uses navmesh when moving toward player or chasing.
  * If player is lost for a timeout, transitions to 'alert'.
  */
 export function createAttackState(manager: EnemyManager): State<EnemyBase> {
@@ -19,16 +21,17 @@ export function createAttackState(manager: EnemyManager): State<EnemyBase> {
   let strafeDir = 1;
   let strafeTimer = 0;
   let shootDisplayTimer = 0;
+  let pathState: PathFollowState | null = null;
 
   return {
     name: 'attack',
 
     enter(enemy) {
       lostSightTimer = 0;
+      pathState = null;
       strafeDir = Math.random() > 0.5 ? 1 : -1;
       strafeTimer = 1 + Math.random() * 2;
       enemy.model.play('shoot');
-      // Alert nearby enemies immediately
       manager.propagateAlert(enemy);
     },
 
@@ -40,10 +43,8 @@ export function createAttackState(manager: EnemyManager): State<EnemyBase> {
         lostSightTimer = 0;
         enemy.lastKnownPlayerPos = playerPos.clone();
 
-        // Face player
         enemy.lookAt(playerPos);
 
-        // Fire at player
         const now = performance.now() / 1000;
         if (shootDisplayTimer > 0) shootDisplayTimer -= dt;
         if (enemy.canFire(now)) {
@@ -53,51 +54,96 @@ export function createAttackState(manager: EnemyManager): State<EnemyBase> {
           shootDisplayTimer = SHOOT_ANIM_MIN_DURATION;
         }
 
-        // Movement: try to maintain preferred range + strafe
         const dist = perception.distanceToPlayer;
         const pos = enemy.group.position;
-        const toPlayer = new THREE.Vector3()
-          .subVectors(playerPos, pos).normalize();
+        const navMesh = manager.getNavMesh();
 
-        let moveZ = 0;
         if (dist > PREFERRED_RANGE + 2) {
-          moveZ = 1;
+          // Approach: use pathfinding when navmesh available
+          const result = getMoveDirection(
+            navMesh,
+            pos,
+            playerPos.x,
+            playerPos.z,
+            pathState,
+            now,
+          );
+          if (result) {
+            pathState = result.pathState;
+            const { dir } = result;
+            const repulsion = manager.getRepulsionForce(enemy);
+            pos.x += (dir.x + repulsion.x * 0.8) * MOVE_SPEED * dt;
+            pos.z += (dir.z + repulsion.z * 0.8) * MOVE_SPEED * dt;
+          }
         } else if (dist < PREFERRED_RANGE - 2) {
-          moveZ = -0.5;
+          // Retreat: use pathfinding
+          const awayX = pos.x - (playerPos.x - pos.x);
+          const awayZ = pos.z - (playerPos.z - pos.z);
+          const result = getMoveDirection(
+            navMesh,
+            pos,
+            awayX,
+            awayZ,
+            pathState,
+            now,
+          );
+          if (result) {
+            pathState = result.pathState;
+            const { dir } = result;
+            const repulsion = manager.getRepulsionForce(enemy);
+            pos.x += (dir.x + repulsion.x * 0.8) * MOVE_SPEED * 0.5 * dt;
+            pos.z += (dir.z + repulsion.z * 0.8) * MOVE_SPEED * 0.5 * dt;
+          }
+        } else {
+          // Within preferred range: strafe
+          pathState = null;
+          const toPlayer = new THREE.Vector3()
+            .subVectors(playerPos, pos)
+            .normalize();
+          strafeTimer -= dt;
+          if (strafeTimer <= 0) {
+            strafeDir *= -1;
+            strafeTimer = 1 + Math.random() * 2;
+          }
+          const right = new THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
+          const repulsion = manager.getRepulsionForce(enemy);
+          pos.x += (right.x * strafeDir * 0.5 + repulsion.x * 0.8) * MOVE_SPEED * dt;
+          pos.z += (right.z * strafeDir * 0.5 + repulsion.z * 0.8) * MOVE_SPEED * dt;
         }
 
-        strafeTimer -= dt;
-        if (strafeTimer <= 0) {
-          strafeDir *= -1;
-          strafeTimer = 1 + Math.random() * 2;
-        }
-
-        const right = new THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
-        const repulsion = manager.getRepulsionForce(enemy);
-        pos.x += (toPlayer.x * moveZ + right.x * strafeDir * 0.5 + repulsion.x * 0.8) * MOVE_SPEED * dt;
-        pos.z += (toPlayer.z * moveZ + right.z * strafeDir * 0.5 + repulsion.z * 0.8) * MOVE_SPEED * dt;
-
-        // Keep shoot animation visible briefly after firing
         if (shootDisplayTimer <= 0) enemy.model.play('walk');
         manager.syncPhysicsBody(enemy);
       } else {
-        // Lost sight of player
         lostSightTimer += dt;
 
-        // Keep moving toward last known position
         if (enemy.lastKnownPlayerPos) {
-          enemy.lookAt(enemy.lastKnownPlayerPos);
           const pos = enemy.group.position;
-          const dir = new THREE.Vector3()
-            .subVectors(enemy.lastKnownPlayerPos, pos);
-          dir.y = 0;
-          if (dir.length() > 1) {
-            enemy.model.play('walk');  // walk when chasing last known pos
-            dir.normalize();
-            pos.x += dir.x * MOVE_SPEED * dt;
-            pos.z += dir.z * MOVE_SPEED * dt;
-            manager.syncPhysicsBody(enemy);
+          const target = enemy.lastKnownPlayerPos;
+          const dist = Math.sqrt(
+            (target.x - pos.x) ** 2 + (target.z - pos.z) ** 2,
+          );
+          if (dist > CHASE_ARRIVE_RADIUS) {
+            enemy.model.play('walk');
+            const navMesh = manager.getNavMesh();
+            const now = performance.now() / 1000;
+            const result = getMoveDirection(
+              navMesh,
+              pos,
+              target.x,
+              target.z,
+              pathState,
+              now,
+            );
+            if (result) {
+              pathState = result.pathState;
+              const { dir } = result;
+              enemy.lookAt(new THREE.Vector3(pos.x + dir.x, pos.y, pos.z + dir.z));
+              const repulsion = manager.getRepulsionForce(enemy);
+              pos.x += (dir.x + repulsion.x * 0.8) * MOVE_SPEED * dt;
+              pos.z += (dir.z + repulsion.z * 0.8) * MOVE_SPEED * dt;
+            }
           }
+          manager.syncPhysicsBody(enemy);
         }
 
         if (lostSightTimer >= LOSE_SIGHT_TIMEOUT) {
@@ -105,7 +151,6 @@ export function createAttackState(manager: EnemyManager): State<EnemyBase> {
         }
       }
 
-      // If hearing new gunshots, update last known pos
       if (perception?.canHearPlayer) {
         enemy.lastKnownPlayerPos = playerPos.clone();
         lostSightTimer = 0;

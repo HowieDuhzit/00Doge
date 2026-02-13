@@ -11,12 +11,12 @@
     {"id":"extraction","x":0,"y":0,"z":54,"width":10,"depth":12,"height":4,"floorColor":3361587,"wallColor":4483652}
   ],
   "doors": [
-    {"id":"d1","x":0,"y":0,"z":8.5,"width":2.5,"height":3,"axis":"z","type":"proximity","proximityRadius":2.5},
-    {"id":"d2","x":5.5,"y":0,"z":16,"width":2,"height":2.8,"axis":"x","type":"locked","keyId":"red","proximityRadius":2},
-    {"id":"d3","x":12,"y":0,"z":23,"width":2.5,"height":3,"axis":"z","type":"proximity","proximityRadius":2.5},
-    {"id":"d4","x":6,"y":0,"z":28,"width":2.5,"height":3,"axis":"x","type":"proximity","proximityRadius":2.5},
-    {"id":"d5","x":0,"y":0,"z":37,"width":2.5,"height":3,"axis":"z","type":"proximity","proximityRadius":2.5},
-    {"id":"d6","x":0,"y":0,"z":48,"width":2,"height":2.8,"axis":"z","type":"locked","proximityRadius":2.5,"requireObjectives":["obj1","obj2"]}
+    {"id":"d1","x":0,"y":0,"z":8.5,"width":1.2,"height":2.1,"axis":"z","type":"proximity","proximityRadius":2.5},
+    {"id":"d2","x":5.5,"y":0,"z":16,"width":1.2,"height":2.1,"axis":"x","type":"locked","keyId":"red","proximityRadius":2},
+    {"id":"d3","x":12,"y":0,"z":23,"width":1.2,"height":2.1,"axis":"z","type":"proximity","proximityRadius":2.5},
+    {"id":"d4","x":6,"y":0,"z":28,"width":1.2,"height":2.1,"axis":"x","type":"proximity","proximityRadius":2.5},
+    {"id":"d5","x":0,"y":0,"z":37,"width":1.2,"height":2.1,"axis":"z","type":"proximity","proximityRadius":2.5},
+    {"id":"d6","x":0,"y":0,"z":48,"width":1.2,"height":2.1,"axis":"z","type":"locked","proximityRadius":2.5,"requireObjectives":["obj1","obj2"]}
   ],
   "playerSpawn": {"x":0,"y":-2,"z":0},
   "enemies": [

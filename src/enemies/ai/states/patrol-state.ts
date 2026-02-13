@@ -3,17 +3,20 @@ import type { State } from '../state-machine';
 import type { EnemyBase } from '../../enemy-base';
 import type { EnemyManager } from '../../enemy-manager';
 import { GameSettings } from '../../../core/game-settings';
+import { getMoveDirection, type PathFollowState } from '../path-follower';
 
 const PATROL_SPEED = 1.8;
 const WAYPOINT_RADIUS = 0.6;
 
 /**
  * Patrol state: walk between waypoints when idle.
+ * Uses navmesh for pathfinding when available.
  * Transitions to alert/attack on perception.
  */
 export function createPatrolState(manager: EnemyManager): State<EnemyBase> {
   let waypointIndex = 0;
   let seenPlayerTimer = 0;
+  let pathState: PathFollowState | null = null;
 
   return {
     name: 'patrol',
@@ -21,6 +24,7 @@ export function createPatrolState(manager: EnemyManager): State<EnemyBase> {
     enter(enemy) {
       if (enemy.waypoints.length === 0) return;
       waypointIndex = 0;
+      pathState = null;
       enemy.model.play('walk');
       const first = enemy.waypoints[0];
       enemy.lookAt(new THREE.Vector3(first.x, enemy.group.position.y, first.z));
@@ -50,18 +54,21 @@ export function createPatrolState(manager: EnemyManager): State<EnemyBase> {
 
       const pos = enemy.group.position;
       const target = enemy.waypoints[waypointIndex];
-      const dx = target.x - pos.x;
-      const dz = target.z - pos.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+      const navMesh = manager.getNavMesh();
+      const now = performance.now() / 1000;
 
-      if (dist <= WAYPOINT_RADIUS) {
-        waypointIndex = (waypointIndex + 1) % enemy.waypoints.length;
-      } else {
-        const dir = new THREE.Vector3(dx, 0, dz).normalize();
-        enemy.lookAt(new THREE.Vector3(target.x, pos.y, target.z));
-        pos.x += dir.x * PATROL_SPEED * dt;
-        pos.z += dir.z * PATROL_SPEED * dt;
+      const result = getMoveDirection(navMesh, pos, target.x, target.z, pathState, now);
+      if (result) {
+        pathState = result.pathState;
+        const { dir } = result;
+        enemy.lookAt(new THREE.Vector3(pos.x + dir.x, pos.y, pos.z + dir.z));
+        const repulsion = manager.getRepulsionForce(enemy);
+        pos.x += (dir.x + repulsion.x * 0.5) * PATROL_SPEED * dt;
+        pos.z += (dir.z + repulsion.z * 0.5) * PATROL_SPEED * dt;
         manager.syncPhysicsBody(enemy);
+      } else {
+        waypointIndex = (waypointIndex + 1) % enemy.waypoints.length;
+        pathState = null;
       }
     },
 

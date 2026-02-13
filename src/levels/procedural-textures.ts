@@ -845,6 +845,127 @@ export function lockedDoorTexture(): THREE.CanvasTexture {
   });
 }
 
+// ─── Snow Ground (mountainous outdoor — wind-blown snow, patches of ice) ───
+
+export function snowGroundTexture(): THREE.CanvasTexture {
+  return getOrCreate('snow-ground', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+
+    // Base snow — bright off-white with blue tint
+    ctx.fillStyle = '#e8eef4';
+    ctx.fillRect(0, 0, W, H);
+
+    // Wind-blown drift patterns — subtle elongated streaks
+    ctx.globalAlpha = 0.12;
+    for (let i = 0; i < 30; i++) {
+      const sx = Math.random() * W;
+      const sy = Math.random() * H;
+      const len = 40 + Math.random() * 80;
+      const grad = ctx.createLinearGradient(sx, sy, sx + len, sy + len * 0.3);
+      grad.addColorStop(0, 'rgba(200, 220, 240, 0.4)');
+      grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
+      grad.addColorStop(1, 'rgba(180, 200, 220, 0.3)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(sx, sy, len, 4 + Math.random() * 6);
+    }
+    ctx.globalAlpha = 1;
+
+    // Ice patches — darker, reflective-looking areas
+    ctx.fillStyle = 'rgba(180, 200, 230, 0.25)';
+    ctx.beginPath();
+    ctx.ellipse(60, 80, 35, 20, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(180, 160, 40, 25, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(120, 220, 30, 18, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Crusty snow texture — tiny speckles
+    for (let i = 0; i < 200; i++) {
+      const shade = 220 + Math.floor(Math.random() * 25);
+      ctx.fillStyle = `rgb(${shade}, ${shade + 5}, ${shade + 15})`;
+      ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+    }
+
+    // Footprint-like depressions (subtle)
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle = '#c0d0e0';
+    ctx.fillRect(100, 100, 8, 4);
+    ctx.fillRect(110, 102, 8, 4);
+    ctx.globalAlpha = 1;
+
+    addNoise(ctx, W, H, 8);
+  });
+}
+
+// ─── Mountain / Rock Wall (snowy cliff face — grey rock with snow caps) ───
+
+export function mountainWallTexture(): THREE.CanvasTexture {
+  return getOrCreate('mountain-wall', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+
+    // Base rock — grey-brown mountain stone
+    ctx.fillStyle = '#6a6e72';
+    ctx.fillRect(0, 0, W, H);
+
+    // Rocky strata — horizontal bands
+    const strataCount = 8;
+    const strataH = H / strataCount;
+    for (let s = 0; s < strataCount; s++) {
+      const sy = s * strataH;
+      const shade = 90 + Math.floor(Math.random() * 25 - 10);
+      const r = shade;
+      const g = shade - 2;
+      const b = shade + 4;
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(0, sy, W, strataH);
+
+      // Crack lines between strata
+      ctx.strokeStyle = 'rgba(40, 42, 48, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, sy + strataH);
+      for (let x = 0; x < W; x += 20) {
+        ctx.lineTo(x + Math.random() * 20, sy + strataH + (Math.random() - 0.5) * 2);
+      }
+      ctx.lineTo(W, sy + strataH);
+      ctx.stroke();
+    }
+
+    // Snow accumulation at top (wind-blown drifts)
+    const snowGrad = ctx.createLinearGradient(0, 0, 0, H);
+    snowGrad.addColorStop(0, 'rgba(230, 240, 255, 0.7)');
+    snowGrad.addColorStop(0.15, 'rgba(220, 235, 250, 0.4)');
+    snowGrad.addColorStop(0.3, 'rgba(200, 215, 235, 0.2)');
+    snowGrad.addColorStop(0.5, 'transparent');
+    snowGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = snowGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Rock cracks and weathering
+    ctx.globalAlpha = 0.15;
+    ctx.strokeStyle = '#3a3c40';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 12; i++) {
+      const startX = Math.random() * W;
+      const startY = Math.random() * H;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      for (let j = 0; j < 4; j++) {
+        const dx = (Math.random() - 0.5) * 40;
+        const dy = (Math.random() - 0.3) * 30;
+        ctx.lineTo(startX + dx, startY + dy);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    addNoise(ctx, W, H, 14);
+  });
+}
+
 // ─── Door Frame Texture (dark metal surround) ───
 
 export function doorFrameTexture(): THREE.CanvasTexture {

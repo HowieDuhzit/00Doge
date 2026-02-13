@@ -18,6 +18,7 @@ import { TriggerSystem } from './levels/trigger-system';
 import { ObjectiveSystem } from './levels/objective-system';
 import { buildLevel } from './levels/level-builder';
 import type { LevelSchema } from './levels/level-schema';
+import { NavMesh } from './navmesh/navmesh';
 import { DestructibleSystem } from './levels/destructible-system';
 import { HUD } from './ui/hud';
 import { DamageIndicator } from './ui/damage-indicator';
@@ -125,6 +126,7 @@ export class Game {
   private missionComplete = false;
   private missionElapsed = 0;
   private levelName = '';
+  private navMesh: NavMesh | null = null;
 
   // Player spawn position (for single-player respawn)
   private playerSpawnPosition = { x: 0, y: 0.5, z: 0 };
@@ -715,6 +717,14 @@ export class Game {
     if (!this.doorSystem || !this.triggerSystem || !this.objectiveSystem) return;
     this.levelName = level.name;
     this.missionElapsed = 0;
+
+    this.navMesh = new NavMesh();
+    const prevPropDestroyed = this.destructibleSystem.onPropDestroyedFull;
+    this.destructibleSystem.onPropDestroyedFull = (prop) => {
+      prevPropDestroyed?.(prop);
+      this.navMesh?.unblockAt(prop.position.x, prop.position.z);
+    };
+
     buildLevel(level, {
       scene: this.scene,
       physics: this.physics,
@@ -728,6 +738,7 @@ export class Game {
         this.playerSpawnPosition = { x, y, z };
         this.player.setPosition(x, y, z);
       },
+      navMesh: this.navMesh,
     });
   }
 

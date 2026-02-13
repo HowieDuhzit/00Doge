@@ -189,6 +189,36 @@ async function init(): Promise<void> {
     });
   }
 
+  // Mission: Mountain Outpost (outdoor snowy level)
+  const mountainBtn = document.getElementById('btn-mission-mountain');
+  if (mountainBtn) {
+    mountainBtn.addEventListener('click', async () => {
+      const btn = mountainBtn as HTMLButtonElement;
+      const origText = btn.textContent;
+      btn.textContent = 'LOADING...';
+      btn.disabled = true;
+      try {
+        await customModelReady;
+        const level = await loadLevel('/levels/mountain-outpost.json');
+        const game = new Game(canvas, physics, { levelMode: true });
+        game.showBriefing(level);
+        game.onMissionComplete = () => {
+          document.getElementById('mission-complete')!.style.display = 'flex';
+        };
+        canvas.addEventListener('click', () => {
+          document.getElementById('start-screen')!.style.display = 'none';
+          hideCCTVBackground();
+          game.start();
+        });
+      } catch (err) {
+        console.error('Mission load failed:', err);
+        btn.textContent = origText ?? 'MISSION — MOUNTAIN OUTPOST';
+        btn.disabled = false;
+        alert('Could not load mission. Make sure you run with "npm run dev" so /levels/mountain-outpost.json is served.');
+      }
+    });
+  }
+
   // Custom Models: accessible from main menu
   const characterModelsScreen = new CharacterModelsScreen();
   characterModelsScreen.onBack = () => {

@@ -39,6 +39,8 @@ export interface RoomDef {
   /** Optional material tint (hex) */
   floorColor?: number;
   wallColor?: number;
+  /** When true: no ceiling (outdoor), snow/rock textures used */
+  outdoor?: boolean;
 }
 
 export type DoorType = 'proximity' | 'locked';
