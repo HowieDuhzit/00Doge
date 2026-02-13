@@ -122,7 +122,7 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
   const { x: px, y: py, z: pz } = level.playerSpawn;
   setPlayerPosition(px, py, pz);
 
-  // Enemies (with optional waypoints for patrol, variant for appearance)
+  // Enemies (with optional waypoints for patrol, variant for appearance, weapon)
   for (const e of level.enemies) {
     enemyManager.spawnEnemy({
       x: e.x,
@@ -131,6 +131,7 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
       facingAngle: e.facingAngle,
       waypoints: e.waypoints,
       variant: e.variant,
+      weapon: e.weapon,
     });
   }
 

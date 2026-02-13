@@ -5,6 +5,8 @@
 
 import * as THREE from 'three';
 import type { GuardVariant } from '../sprite/guard-sprite-sheet';
+import type { EnemyWeaponType } from '../../weapons/weapon-stats-map';
+import { buildWeaponMesh } from '../../weapons/weapon-mesh-factory';
 
 // Shared geometry — reused by all enemies
 const GEOS = {
@@ -22,8 +24,6 @@ const GEOS = {
   helmet: new THREE.BoxGeometry(0.24, 0.12, 0.24),
   cap: new THREE.BoxGeometry(0.2, 0.04, 0.2),
   beret: new THREE.BoxGeometry(0.2, 0.03, 0.2),
-  rifleReceiver: new THREE.BoxGeometry(0.06, 0.05, 0.25),
-  rifleBarrel: new THREE.BoxGeometry(0.04, 0.04, 0.15),
 };
 
 export interface GuardModelJoints {
@@ -82,7 +82,7 @@ function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
 }
 
-export function createGuardModel(variant: GuardVariant): GuardModelResult {
+export function createGuardModel(variant: GuardVariant, weaponType: EnemyWeaponType = 'pistol'): GuardModelResult {
   const uniformColor = parseColor(variant.uniformColor);
   const vestColor = parseColor(variant.vestColor);
   const skinTone = parseColor(variant.skinTone);
@@ -220,17 +220,13 @@ export function createGuardModel(variant: GuardVariant): GuardModelResult {
   rightHand.position.set(0, -0.18, 0);
   rightElbow.add(rightHand);
 
-  // Enemy rifle
+  // Enemy weapon — same meshes as player/pickups (PP7, KF7, Shotgun, Sniper)
   const weaponAttach = new THREE.Group();
   weaponAttach.position.set(0, -0.18, -0.08);
   rightElbow.add(weaponAttach);
 
-  const receiver = new THREE.Mesh(GEOS.rifleReceiver, getMetalMat('rifle', darkColor));
-  receiver.position.set(0, 0, -0.1);
-  weaponAttach.add(receiver);
-  const barrel = new THREE.Mesh(GEOS.rifleBarrel, getMetalMat('rifle', darkColor));
-  barrel.position.set(0, 0, -0.27);
-  weaponAttach.add(barrel);
+  const weapon = buildWeaponMesh(weaponType, 'default');
+  weaponAttach.add(weapon);
 
   // Legs — connect at waist (hips origin); leg swing uses Z axis for forward/back
   const leftHip = new THREE.Group();
@@ -297,4 +293,12 @@ export function createGuardModel(variant: GuardVariant): GuardModelResult {
     },
     hitFlashMeshes,
   };
+}
+
+/** Weapon mesh for attachment to custom models (VRM/GLB). Same meshes as player/pickups. */
+export function createEnemyWeaponMesh(weaponType: EnemyWeaponType): THREE.Group {
+  const mesh = buildWeaponMesh(weaponType, 'default');
+  mesh.position.set(0.1, -0.025, -0.08);
+  mesh.rotation.set(Math.PI, Math.PI + (85 * Math.PI) / 180, -Math.PI / 2);
+  return mesh;
 }

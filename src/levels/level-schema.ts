@@ -69,6 +69,10 @@ export interface SpawnDef {
   z: number;
 }
 
+import type { EnemyWeaponType } from '../weapons/weapon-stats-map';
+
+export type { EnemyWeaponType };
+
 export interface EnemySpawnDef {
   x: number;
   y: number;
@@ -78,6 +82,8 @@ export interface EnemySpawnDef {
   waypoints?: { x: number; z: number }[];
   /** Optional variant: 'guard', 'soldier', 'officer'. Default: 'guard'. */
   variant?: string;
+  /** Optional weapon: 'pistol', 'rifle', 'shotgun', 'sniper'. Default: 'pistol'. */
+  weapon?: EnemyWeaponType;
 }
 
 export interface PickupSpawnDef {

@@ -4,12 +4,13 @@ import { PhysicsWorld } from '../core/physics-world';
 import { EventBus } from '../core/event-bus';
 import { EnemyBase } from './enemy-base';
 import { GUARD_VARIANTS, type GuardVariant } from './sprite/guard-sprite-sheet';
+import type { EnemyWeaponType } from '../weapons/weapon-stats-map';
 import { perceivePlayer, type PerceptionResult } from './ai/perception';
 import { createIdleState } from './ai/states/idle-state';
 import { createPatrolState } from './ai/states/patrol-state';
 import { createAlertState } from './ai/states/alert-state';
 import { createAttackState } from './ai/states/attack-state';
-import { playGunshot } from '../audio/sound-effects';
+import { playGunshotWeapon } from '../audio/sound-effects';
 
 const ALERT_PROPAGATION_RANGE = 12;
 const DEAD_REMOVAL_TIME = 5;
@@ -23,6 +24,8 @@ export interface EnemySpawn {
   waypoints?: { x: number; z: number }[];
   /** Optional variant: 'guard', 'soldier', 'officer'. Default: 'guard'. */
   variant?: string;
+  /** Optional weapon: 'pistol', 'rifle', 'shotgun', 'sniper'. Default: 'pistol'. */
+  weapon?: EnemyWeaponType;
 }
 
 export class EnemyManager {
@@ -78,11 +81,13 @@ export class EnemyManager {
     const variant: GuardVariant = spawn.variant && GUARD_VARIANTS[spawn.variant]
       ? GUARD_VARIANTS[spawn.variant]
       : GUARD_VARIANTS.guard;
+    const weapon: EnemyWeaponType = spawn.weapon ?? 'pistol';
     const enemy = new EnemyBase(
       this.physics,
       spawn.x, spawn.y, spawn.z,
       spawn.facingAngle,
       variant,
+      weapon,
     );
     if (spawn.waypoints?.length) {
       enemy.waypoints = [...spawn.waypoints];
@@ -164,35 +169,48 @@ export class EnemyManager {
   /** Fire at the player from an enemy (called by attack state) */
   enemyFireAtPlayer(enemy: EnemyBase): void {
     const enemyPos = enemy.getHeadPosition();
-    const dir = new THREE.Vector3()
+    const stats = enemy.weaponStats;
+    const baseDir = new THREE.Vector3()
       .subVectors(this.playerPos, enemyPos)
       .normalize();
 
-    // Apply accuracy spread
-    dir.x += (Math.random() - 0.5) * enemy.accuracy;
-    dir.y += (Math.random() - 0.5) * enemy.accuracy * 0.5;
-    dir.z += (Math.random() - 0.5) * enemy.accuracy;
-    dir.normalize();
+    let totalDamage = 0;
 
-    // Raycast to see if bullet hits player
-    const hit = this.physics.castRay(
-      enemyPos.x, enemyPos.y, enemyPos.z,
-      dir.x, dir.y, dir.z,
-      30,
-      enemy.collider,
-    );
+    for (let r = 0; r < stats.raysPerShot; r++) {
+      const dir = baseDir.clone();
+      if (stats.raysPerShot > 1) {
+        const cone = stats.spreadCone;
+        dir.x += (Math.random() - 0.5) * cone;
+        dir.y += (Math.random() - 0.5) * cone * 0.5;
+        dir.z += (Math.random() - 0.5) * cone;
+      } else {
+        const spread = stats.spread;
+        dir.x += (Math.random() - 0.5) * spread;
+        dir.y += (Math.random() - 0.5) * spread * 0.5;
+        dir.z += (Math.random() - 0.5) * spread;
+      }
+      dir.normalize();
+
+      const hit = this.physics.castRay(
+        enemyPos.x, enemyPos.y, enemyPos.z,
+        dir.x, dir.y, dir.z,
+        stats.range,
+        enemy.collider,
+      );
+
+      if (hit && hit.collider.handle === this.playerCollider.handle) {
+        totalDamage += stats.damage;
+      }
+    }
 
     // Visual: muzzle flash on enemy
     this.flashEnemyMuzzle(enemyPos);
 
-    // Audio (quieter than player gunshot)
-    playGunshot();
+    // Audio: weapon-specific sound
+    playGunshotWeapon(enemy.weaponType);
 
-    if (hit) {
-      // Check if the hit collider is the player's
-      if (hit.collider.handle === this.playerCollider.handle) {
-        this.onPlayerHit?.(enemy.damage, enemyPos);
-      }
+    if (totalDamage > 0) {
+      this.onPlayerHit?.(totalDamage, enemyPos);
     }
   }
 

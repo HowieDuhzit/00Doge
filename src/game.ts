@@ -1137,24 +1137,28 @@ export class Game {
     this.enemyManager.spawnEnemy({
       x: 5, y: 0, z: 5,
       facingAngle: Math.PI + 0.5,
+      weapon: 'pistol',
     });
 
     // Guard behind barrels (facing center)
     this.enemyManager.spawnEnemy({
       x: -6, y: 0, z: -6,
       facingAngle: Math.PI / 4,
+      weapon: 'rifle',
     });
 
     // Guard near far wall (patrolling area)
     this.enemyManager.spawnEnemy({
       x: 7, y: 0, z: -5,
       facingAngle: Math.PI,
+      weapon: 'shotgun',
     });
 
     // Guard near table crate
     this.enemyManager.spawnEnemy({
       x: -4, y: 0, z: 6,
       facingAngle: -Math.PI / 2,
+      weapon: 'sniper',
     });
   }
 

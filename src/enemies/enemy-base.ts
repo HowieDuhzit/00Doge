@@ -10,6 +10,8 @@ import { getPreloadedSpriteTexture } from './sprite/guard-sprite-sheet';
 import { getCachedEnemyModel } from '../core/model-loader';
 import { ENEMY_RENDER_CONFIG } from './enemy-render-config';
 import { type GuardVariant, GUARD_VARIANTS } from './sprite/guard-sprite-sheet';
+import { getEnemyWeaponStats, type EnemyWeaponType } from '../weapons/weapon-stats-map';
+import type { WeaponStats } from '../weapons/weapon-base';
 
 const BODY_RADIUS = 0.3;
 const BODY_HEIGHT = 1.4;
@@ -32,9 +34,10 @@ export class EnemyBase {
 
   health = 100;
   maxHealth = 100;
-  damage = 8;              // Damage per shot to player
-  fireRate = 1.5;          // Shots per second
-  accuracy = 0.08;         // Spread (lower = more accurate)
+  /** Weapon type (pistol, rifle, shotgun, sniper) — used for sound and reference */
+  readonly weaponType: EnemyWeaponType;
+  /** Weapon stats (damage, fireRate, spread, etc.) — from player weapon definitions */
+  readonly weaponStats: WeaponStats;
   lastFireTime = 0;
   dead = false;
   deathTimer = 0;
@@ -60,9 +63,12 @@ export class EnemyBase {
     x: number, y: number, z: number,
     facingAngle: number,
     variant: GuardVariant = GUARD_VARIANTS.guard,
+    weaponType: EnemyWeaponType = 'pistol',
   ) {
     this.facingAngle = facingAngle;
     this.targetFacingAngle = facingAngle;
+    this.weaponType = weaponType;
+    this.weaponStats = getEnemyWeaponStats(weaponType);
 
     // Visual mesh group — rotation.y controls facing (3D models rotate with parent)
     this.physics = physics;
@@ -87,7 +93,7 @@ export class EnemyBase {
       this.model = new EnemySprite(spriteSource);
     } else {
       const cachedModel = getCachedEnemyModel();
-      this.model = cachedModel ? new EnemyCustomModel(cachedModel) : new EnemyModel(variant);
+      this.model = cachedModel ? new EnemyCustomModel(cachedModel, weaponType) : new EnemyModel(variant, weaponType);
     }
     this.group.add(this.model.mesh);
     this.group.add(this.model.shadowMesh);
@@ -139,9 +145,9 @@ export class EnemyBase {
     this.targetFacingAngle = Math.atan2(dx, dz);
   }
 
-  /** Check if can fire based on fire rate */
+  /** Check if can fire based on weapon fire rate */
   canFire(now: number): boolean {
-    return now - this.lastFireTime >= 1 / this.fireRate;
+    return now - this.lastFireTime >= 1 / this.weaponStats.fireRate;
   }
 
   takeDamage(amount: number): void {

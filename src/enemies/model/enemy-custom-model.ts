@@ -9,6 +9,8 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { VRMHumanBoneList } from '@pixiv/three-vrm';
+import { createEnemyWeaponMesh } from './guard-model-factory';
+import type { EnemyWeaponType } from '../../weapons/weapon-stats-map';
 import type { LoadedCharacter } from '../../core/model-loader';
 import type { VRM } from '@pixiv/three-vrm';
 import { isLoadedVRM } from '../../core/model-loader';
@@ -161,7 +163,7 @@ export class EnemyCustomModel {
   private ragdollPelvisCallback: RagdollPelvisCallback | null = null;
   private meshBaseY = 0;
 
-  constructor(char: LoadedCharacter) {
+  constructor(char: LoadedCharacter, weaponType: EnemyWeaponType = 'pistol') {
     const { scene, animations } = getSceneAndAnimations(char);
     if (isLoadedVRM(char)) {
       this.vrmCopyParams = buildVRMCopyParams(char.vrm);
@@ -230,6 +232,33 @@ export class EnemyCustomModel {
     });
     this.shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
     this.shadowMesh.position.y = 0.02;
+
+    // Attach weapon to right hand (VRM/GLB humanoid rig)
+    const attachBone = this.findRightHandBone(char);
+    if (attachBone) {
+      const weapon = createEnemyWeaponMesh(weaponType);
+      attachBone.add(weapon);
+    }
+  }
+
+  /** Find right hand bone in cloned mesh for weapon attachment */
+  private findRightHandBone(char: LoadedCharacter): THREE.Object3D | null {
+    let handNode: { name: string } | null = null;
+    if (isLoadedVRM(char)) {
+      handNode = char.vrm.humanoid?.getRawBoneNode('rightHand' as never) ?? null;
+      if (!handNode) handNode = char.vrm.humanoid?.getRawBoneNode('rightLowerArm' as never) ?? null;
+    }
+    if (handNode) {
+      const found = this.mesh.getObjectByName(handNode.name);
+      return found ?? null;
+    }
+    // Fallback: search common bone names (Mixamo, generic GLB)
+    const names = ['RightHand', 'rightHand', 'hand_r', 'mixamorigRightHand', 'Hand_R'];
+    for (const n of names) {
+      const obj = this.mesh.getObjectByName(n);
+      if (obj) return obj;
+    }
+    return null;
   }
 
   /** Activate ragdoll physics for death. Replaces death animation. Only for VRM with full rig. */

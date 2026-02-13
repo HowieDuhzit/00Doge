@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import type { GuardVariant } from '../sprite/guard-sprite-sheet';
+import type { EnemyWeaponType } from '../../weapons/weapon-stats-map';
 import type { Pose } from './pose-library';
 import { createGuardModel } from './guard-model-factory';
 import { PoseAnimator, type AnimationName } from './pose-animator';
@@ -19,8 +20,8 @@ export class EnemyModel {
   private hitFlashMeshes: THREE.Mesh[];
   private hitTintTimer = 0;
 
-  constructor(variant: GuardVariant) {
-    const { rootGroup, joints, hitFlashMeshes } = createGuardModel(variant);
+  constructor(variant: GuardVariant, weaponType: EnemyWeaponType = 'pistol') {
+    const { rootGroup, joints, hitFlashMeshes } = createGuardModel(variant, weaponType);
     this.mesh = rootGroup;
     this.joints = joints;
     this.hitFlashMeshes = hitFlashMeshes;
