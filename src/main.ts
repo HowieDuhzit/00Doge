@@ -219,6 +219,36 @@ async function init(): Promise<void> {
     });
   }
 
+  // Mission: Dust District (outdoor desert level)
+  const dustBtn = document.getElementById('btn-mission-dust');
+  if (dustBtn) {
+    dustBtn.addEventListener('click', async () => {
+      const btn = dustBtn as HTMLButtonElement;
+      const origText = btn.textContent;
+      btn.textContent = 'LOADING...';
+      btn.disabled = true;
+      try {
+        await customModelReady;
+        const level = await loadLevel('/levels/dust-district.json');
+        const game = new Game(canvas, physics, { levelMode: true });
+        game.showBriefing(level);
+        game.onMissionComplete = () => {
+          document.getElementById('mission-complete')!.style.display = 'flex';
+        };
+        canvas.addEventListener('click', () => {
+          document.getElementById('start-screen')!.style.display = 'none';
+          hideCCTVBackground();
+          game.start();
+        });
+      } catch (err) {
+        console.error('Mission load failed:', err);
+        btn.textContent = origText ?? 'MISSION — DUST DISTRICT';
+        btn.disabled = false;
+        alert('Could not load mission. Make sure you run with "npm run dev" so /levels/dust-district.json is served.');
+      }
+    });
+  }
+
   // Custom Models: accessible from main menu
   const characterModelsScreen = new CharacterModelsScreen();
   characterModelsScreen.onBack = () => {
@@ -250,21 +280,30 @@ async function init(): Promise<void> {
     multiplayerBtn.addEventListener('click', () => {
       document.getElementById('start-screen')!.style.display = 'none';
       lobbyScreen.show({
-        onJoin: async (username) => {
+        onJoin: async (username, mapId) => {
           try {
             await customModelReady;
             if (ENEMY_RENDER_CONFIG.customPlayerModelPath) await customPlayerModelReady;
             const networkManager = new NetworkManager(username);
-            await networkManager.connect();
+            const { roomMapId } = await networkManager.connect(mapId ?? 'crossfire');
 
-            console.log('[Main] Connected to server as:', networkManager.playerId);
+            console.log('[Main] Connected to server as:', networkManager.playerId, 'map:', roomMapId);
 
             lobbyScreen.hide();
             hideCCTVBackground();
 
+            // Dust District loads from JSON; crossfire/wasteland use procedural arena
+            let levelSchema: Awaited<ReturnType<typeof loadLevel>> | undefined;
+            if (roomMapId === 'dust') {
+              levelSchema = await loadLevel('/levels/dust-district.json');
+              levelSchema.enemies = []; // Multiplayer: no NPCs
+            }
+
             const game = new Game(canvas, physics, {
               networkMode: 'client',
               networkManager,
+              mapId: roomMapId,
+              levelSchema,
             });
             game.start();
             canvas.addEventListener('click', () => game.start());

@@ -30,7 +30,24 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function createRooms(): RoomDef[] {
+export type MultiplayerMapId = 'crossfire' | 'wasteland' | 'dust';
+
+const CROSSFIRE_ROOM_COLORS = {
+  spawn: { floor: 0xf0e5d2, wall: 0xe9ddc6 },
+  lane: { floor: 0xede2cf, wall: 0xe5d8c0 },
+  laneSouth: { floor: 0xeaddc8, wall: 0xe2d3ba },
+  switch: { floor: 0xf5ead7, wall: 0xe9ddc6 },
+};
+
+const WASTELAND_ROOM_COLORS = {
+  spawn: { floor: 0x6a6e62, wall: 0x5a5e52 },
+  lane: { floor: 0x5e6258, wall: 0x54584c },
+  laneSouth: { floor: 0x5a5e54, wall: 0x50544a },
+  switch: { floor: 0x666a5e, wall: 0x585c50 },
+};
+
+function createRooms(mapId: MultiplayerMapId): RoomDef[] {
+  const c = mapId === 'wasteland' ? WASTELAND_ROOM_COLORS : CROSSFIRE_ROOM_COLORS;
   const rooms: RoomDef[] = [
     {
       id: 'spawn_west',
@@ -40,8 +57,8 @@ function createRooms(): RoomDef[] {
       width: 12,
       depth: 16,
       height: ROOM_HEIGHT,
-      floorColor: 0xf0e5d2,
-      wallColor: 0xe9ddc6,
+      floorColor: c.spawn.floor,
+      wallColor: c.spawn.wall,
     },
     {
       id: 'spawn_east',
@@ -51,8 +68,8 @@ function createRooms(): RoomDef[] {
       width: 12,
       depth: 16,
       height: ROOM_HEIGHT,
-      floorColor: 0xf0e5d2,
-      wallColor: 0xe9ddc6,
+      floorColor: c.spawn.floor,
+      wallColor: c.spawn.wall,
     },
     {
       id: 'lane_north_west',
@@ -62,8 +79,8 @@ function createRooms(): RoomDef[] {
       width: 12,
       depth: 8,
       height: ROOM_HEIGHT,
-      floorColor: 0xede2cf,
-      wallColor: 0xe5d8c0,
+      floorColor: c.lane.floor,
+      wallColor: c.lane.wall,
     },
     {
       id: 'lane_north_mid',
@@ -73,8 +90,8 @@ function createRooms(): RoomDef[] {
       width: 24,
       depth: 8,
       height: ROOM_HEIGHT,
-      floorColor: 0xede2cf,
-      wallColor: 0xe5d8c0,
+      floorColor: c.lane.floor,
+      wallColor: c.lane.wall,
     },
     {
       id: 'lane_north_east',
@@ -84,8 +101,8 @@ function createRooms(): RoomDef[] {
       width: 12,
       depth: 8,
       height: ROOM_HEIGHT,
-      floorColor: 0xede2cf,
-      wallColor: 0xe5d8c0,
+      floorColor: c.lane.floor,
+      wallColor: c.lane.wall,
     },
     {
       id: 'lane_south_west',
@@ -95,8 +112,8 @@ function createRooms(): RoomDef[] {
       width: 12,
       depth: 8,
       height: ROOM_HEIGHT,
-      floorColor: 0xeaddc8,
-      wallColor: 0xe2d3ba,
+      floorColor: c.laneSouth.floor,
+      wallColor: c.laneSouth.wall,
     },
     {
       id: 'lane_south_mid',
@@ -106,8 +123,8 @@ function createRooms(): RoomDef[] {
       width: 24,
       depth: 8,
       height: ROOM_HEIGHT,
-      floorColor: 0xeaddc8,
-      wallColor: 0xe2d3ba,
+      floorColor: c.laneSouth.floor,
+      wallColor: c.laneSouth.wall,
     },
     {
       id: 'lane_south_east',
@@ -117,8 +134,8 @@ function createRooms(): RoomDef[] {
       width: 12,
       depth: 8,
       height: ROOM_HEIGHT,
-      floorColor: 0xeaddc8,
-      wallColor: 0xe2d3ba,
+      floorColor: c.laneSouth.floor,
+      wallColor: c.laneSouth.wall,
     },
     {
       id: 'switch_west',
@@ -128,8 +145,8 @@ function createRooms(): RoomDef[] {
       width: 6,
       depth: 4,
       height: ROOM_HEIGHT,
-      floorColor: 0xf5ead7,
-      wallColor: 0xe9ddc6,
+      floorColor: c.switch.floor,
+      wallColor: c.switch.wall,
     },
     {
       id: 'switch_center',
@@ -139,8 +156,8 @@ function createRooms(): RoomDef[] {
       width: 6,
       depth: 4,
       height: ROOM_HEIGHT,
-      floorColor: 0xf5ead7,
-      wallColor: 0xe9ddc6,
+      floorColor: c.switch.floor,
+      wallColor: c.switch.wall,
     },
     {
       id: 'switch_east',
@@ -150,8 +167,8 @@ function createRooms(): RoomDef[] {
       width: 6,
       depth: 4,
       height: ROOM_HEIGHT,
-      floorColor: 0xf5ead7,
-      wallColor: 0xe9ddc6,
+      floorColor: c.switch.floor,
+      wallColor: c.switch.wall,
     },
   ];
 
@@ -251,29 +268,73 @@ export function getMultiplayerArenaDefaultSpawnPoint(): SpawnDef {
   return { ...first };
 }
 
-export function createProceduralMultiplayerArena(
+/** Dust District spawn points (from dust-district.json layout). */
+export function getDustDistrictSpawnPoints(): SpawnDef[] {
+  return [
+    { x: -28, y: 0.5, z: 0 },
+    { x: -26, y: 0.5, z: -4 },
+    { x: -26, y: 0.5, z: 4 },
+    { x: 28, y: 0.5, z: 0 },
+    { x: 26, y: 0.5, z: -4 },
+    { x: 26, y: 0.5, z: 4 },
+    { x: 0, y: 0.5, z: -6 },
+    { x: 0, y: 0.5, z: 6 },
+    { x: -15, y: 0.5, z: 30 },
+    { x: 12, y: 0.5, z: 35 },
+    { x: 20, y: 0.5, z: 40 },
+  ];
+}
+
+export const MULTIPLAYER_MAPS: { id: MultiplayerMapId; name: string; description: string }[] = [
+  { id: 'crossfire', name: 'Crossfire Complex', description: 'Palace-style arena' },
+  { id: 'wasteland', name: 'Wasteland Depot', description: 'Industrial wasteland arena' },
+  { id: 'dust', name: 'Dust District', description: 'Desert outdoor map with vehicles' },
+];
+
+const MAP_META: Record<Exclude<MultiplayerMapId, 'dust'>, { name: string; theme: 'palace' | 'wasteland'; briefing: string }> = {
+  crossfire: {
+    name: 'Crossfire Complex',
+    theme: 'palace',
+    briefing:
+      'Procedural close-quarters multiplayer arena with two dominant shooting lanes and three connector rooms for rotates.',
+  },
+  wasteland: {
+    name: 'Wasteland Depot',
+    theme: 'wasteland',
+    briefing:
+      'Industrial wasteland arena. Same layout as Crossfire — two shooting lanes, three connector rooms. Dusty and worn.',
+  },
+};
+
+export function createMultiplayerArena(
+  mapId: Exclude<MultiplayerMapId, 'dust'> = 'crossfire',
   config: Partial<ArenaLayoutConfig> = {},
 ): LevelSchema {
   const finalConfig: ArenaLayoutConfig = {
     ...DEFAULT_CONFIG,
     ...config,
   };
-
-  const playerSpawn = getMultiplayerArenaDefaultSpawnPoint();
+  const meta = MAP_META[mapId];
 
   return {
-    name: 'Crossfire Complex',
-    theme: 'palace',
-    briefing:
-      'Procedural close-quarters multiplayer arena with two dominant shooting lanes and three connector rooms for rotates.',
-    rooms: createRooms(),
+    name: meta.name,
+    theme: meta.theme,
+    briefing: meta.briefing,
+    rooms: createRooms(mapId),
     doors: createDoors(),
-    playerSpawn,
+    playerSpawn: getMultiplayerArenaDefaultSpawnPoint(),
     enemies: [],
     pickups: createPickups(),
     objectives: [],
     triggers: [],
     props: createLaneCoverProps(finalConfig.seed),
   };
+}
+
+/** @deprecated Use createMultiplayerArena('crossfire', config) instead. */
+export function createProceduralMultiplayerArena(
+  config: Partial<ArenaLayoutConfig> = {},
+): LevelSchema {
+  return createMultiplayerArena('crossfire', config);
 }
 

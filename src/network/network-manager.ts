@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { NetworkConfig } from './network-config';
+import type { MultiplayerMapId } from '../levels/multiplayer-arena';
 import {
   NetworkEventType,
   PlayerConnectedEvent,
@@ -17,6 +18,7 @@ import {
   FlashlightToggleEvent,
   DestructibleDestroyedEvent,
   GameOverEvent,
+  RoomJoinedEvent,
 } from './network-events';
 
 /**
@@ -92,9 +94,9 @@ export class NetworkManager {
 
   /**
    * Connect to the game server.
-   * Returns a promise that resolves when connection is established.
+   * Returns roomMapId so the client can load the correct level.
    */
-  async connect(): Promise<void> {
+  async connect(mapId?: MultiplayerMapId): Promise<{ roomMapId: MultiplayerMapId }> {
     return new Promise((resolve, reject) => {
       this.socket = io(NetworkConfig.SERVER_URL, {
         reconnection: NetworkConfig.RECONNECTION.enabled,
@@ -103,19 +105,25 @@ export class NetworkManager {
         reconnectionDelayMax: NetworkConfig.RECONNECTION.delayMax,
       });
 
+      // One-time listener for room:joined (server tells us which map to load)
+      const onRoomJoined = (event: RoomJoinedEvent) => {
+        this.socket!.off('room:joined', onRoomJoined);
+        resolve({ roomMapId: event.roomMapId });
+      };
+      this.socket.on('room:joined', onRoomJoined);
+
       // Connection successful
       this.socket.on('connect', () => {
         console.log('[NetworkManager] Connected to server');
         this.connected = true;
         this._playerId = this.socket!.id ?? null;
 
-        // Send initial player info
+        // Send initial player info (mapId lets server set room map when empty)
         this.socket!.emit(NetworkEventType.PLAYER_CONNECTED, {
           playerId: this._playerId,
           username: this.username,
+          mapId,
         } as PlayerConnectedEvent);
-
-        resolve();
       });
 
       // Connection error

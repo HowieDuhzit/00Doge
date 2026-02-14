@@ -39,6 +39,7 @@ function getDebrisMats(type: string): THREE.MeshBasicMaterial[] {
   let baseColor: number;
   if (type === 'crate') baseColor = 0x8B6914;
   else if (type === 'crate_metal') baseColor = 0x556677;
+  else if (type === 'vehicle_car' || type === 'vehicle_truck') baseColor = 0x443322;
   else baseColor = 0x664433;
 
   const mats: THREE.MeshBasicMaterial[] = [];
@@ -60,26 +61,40 @@ const DEFAULT_HEALTH: Record<string, number> = {
   crate: 30,
   crate_metal: 70,
   barrel: 20,
+  vehicle_car: 120,
+  vehicle_truck: 140,
 };
 
-// Barrel explosion properties
+// Barrel / vehicle explosion properties
 const BARREL_EXPLOSION_RADIUS = 3;
 const BARREL_EXPLOSION_DAMAGE = 50;
+const VEHICLE_EXPLOSION_RADIUS = 4;
+const VEHICLE_EXPLOSION_DAMAGE = 60;
+const VEHICLE_FLAME_THRESHOLD = 0.33; // Show flames when health < 33% of max
 
 export interface PropLoot {
   type: string;
   amount?: number;
 }
 
+export type DestructiblePropType =
+  | 'crate'
+  | 'crate_metal'
+  | 'barrel'
+  | 'vehicle_car'
+  | 'vehicle_truck';
+
 export interface DestructibleProp {
   mesh: THREE.Object3D;
   collider: RAPIER.Collider;
   health: number;
   maxHealth: number;
-  type: 'crate' | 'crate_metal' | 'barrel';
+  type: DestructiblePropType;
   position: THREE.Vector3;
   size: number; // approximate extent for debris sizing
   loot?: PropLoot;
+  /** Flame effect group attached when health drops below threshold (vehicles only) */
+  flameGroup?: THREE.Group;
 }
 
 interface Debris {
@@ -141,7 +156,7 @@ export class DestructibleSystem {
   register(
     mesh: THREE.Object3D,
     collider: RAPIER.Collider,
-    type: 'crate' | 'crate_metal' | 'barrel',
+    type: DestructiblePropType,
     health?: number,
     size?: number,
     loot?: PropLoot,
@@ -182,7 +197,7 @@ export class DestructibleSystem {
    */
   destroyByPositionAndType(
     position: { x: number; y: number; z: number },
-    type: 'crate' | 'crate_metal' | 'barrel',
+    type: DestructiblePropType,
     tolerance = 0.5,
     skipNetworkCallback = true,
     silent = false
@@ -236,9 +251,38 @@ export class DestructibleSystem {
     // Brief red flash on hit
     this.flashMesh(prop.mesh);
 
+    // Vehicle flame effect when health drops below threshold
+    const isVehicle = prop.type === 'vehicle_car' || prop.type === 'vehicle_truck';
+    if (isVehicle && !prop.flameGroup) {
+      const threshold = prop.maxHealth * VEHICLE_FLAME_THRESHOLD;
+      if (prop.health < threshold) {
+        this.showVehicleFlames(prop);
+      }
+    }
+
     if (prop.health <= 0) {
       this.destroy(prop);
     }
+  }
+
+  /** Attach flame effect to vehicle when health is low. */
+  private showVehicleFlames(prop: DestructibleProp): void {
+    if (prop.flameGroup) return;
+    const group = new THREE.Group();
+    group.position.set(0, 0.4, 0.6); // Engine/front area offset
+    const light = new THREE.PointLight(0xff6600, 0.8, 3);
+    light.position.set(0, 0, 0);
+    group.add(light);
+    const geo = new THREE.SphereGeometry(0.25, 6, 4);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff4400,
+      emissive: 0xff4400,
+      emissiveIntensity: 0.8,
+    });
+    const sphere = new THREE.Mesh(geo, mat);
+    group.add(sphere);
+    prop.mesh.add(group);
+    prop.flameGroup = group;
   }
 
   /** Damage all props within a radius (explosions). Damage falls off with distance. */
@@ -306,8 +350,14 @@ export class DestructibleSystem {
     if (prop.type === 'barrel') {
       this.spawnBarrelFlash(prop.position);
       this.onBarrelExplode?.(prop.position, BARREL_EXPLOSION_RADIUS, BARREL_EXPLOSION_DAMAGE);
-      // Chain reaction: damage nearby props from barrel blast
       this.damageInRadius(prop.position, BARREL_EXPLOSION_RADIUS, BARREL_EXPLOSION_DAMAGE);
+    }
+
+    // Vehicle explosion: spawn flash + area damage
+    if (prop.type === 'vehicle_car' || prop.type === 'vehicle_truck') {
+      this.spawnBarrelFlash(prop.position);
+      this.onBarrelExplode?.(prop.position, VEHICLE_EXPLOSION_RADIUS, VEHICLE_EXPLOSION_DAMAGE);
+      this.damageInRadius(prop.position, VEHICLE_EXPLOSION_RADIUS, VEHICLE_EXPLOSION_DAMAGE);
     }
 
     // Drop loot if defined
@@ -344,8 +394,9 @@ export class DestructibleSystem {
 
   private spawnDebris(prop: DestructibleProp): void {
     const mats = getDebrisMats(prop.type);
-    const count = prop.type === 'barrel' ? DEBRIS_COUNT + 2 : DEBRIS_COUNT;
-    const speed = prop.type === 'barrel' ? 6 : 3;
+    const isExplosive = prop.type === 'barrel' || prop.type === 'vehicle_car' || prop.type === 'vehicle_truck';
+    const count = isExplosive ? DEBRIS_COUNT + 2 : DEBRIS_COUNT;
+    const speed = isExplosive ? 6 : 3;
     // Floor level = bottom of the prop (prop center minus half size)
     const floorY = prop.position.y - prop.size / 2;
 
@@ -369,9 +420,10 @@ export class DestructibleSystem {
 
       const angle = Math.random() * Math.PI * 2;
       const outSpeed = (1 + Math.random()) * speed;
+      const isExplosive = prop.type === 'barrel' || prop.type === 'vehicle_car' || prop.type === 'vehicle_truck';
       const velocity = new THREE.Vector3(
         Math.cos(angle) * outSpeed,
-        2 + Math.random() * (prop.type === 'barrel' ? 5 : 3),
+        2 + Math.random() * (isExplosive ? 5 : 3),
         Math.sin(angle) * outSpeed,
       );
 

@@ -274,6 +274,297 @@ export function ceilingPanelTexture(): THREE.CanvasTexture {
   });
 }
 
+// ─── Wasteland Wall (Industrial concrete with rust, olive-grey tones) ───
+
+export function wastelandWallTexture(): THREE.CanvasTexture {
+  return getOrCreate('wasteland-wall', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+
+    // Base concrete — olive-grey
+    ctx.fillStyle = '#6a6e5a';
+    ctx.fillRect(0, 0, W, H);
+
+    const blockRows = 4;
+    const blockH = H / blockRows;
+    const mortarW = 4;
+
+    for (let r = 0; r < blockRows; r++) {
+      const by = r * blockH;
+      const offset = r % 2 === 0 ? 0 : W / 4;
+      const blocksPerRow = 2;
+      const blockW = W / blocksPerRow;
+
+      for (let c = -1; c <= blocksPerRow; c++) {
+        const bx = c * blockW + offset;
+        const base = 95 + Math.floor(Math.random() * 24 - 12);
+        const g = base - 2;
+        const b = base - 8;
+        ctx.fillStyle = `rgb(${base}, ${g}, ${b})`;
+        ctx.fillRect(bx + mortarW / 2, by + mortarW / 2, blockW - mortarW, blockH - mortarW);
+
+        ctx.fillStyle = 'rgba(0,0,0,0.14)';
+        ctx.fillRect(bx + mortarW / 2, by + mortarW / 2, blockW - mortarW, 3);
+        ctx.fillRect(bx + mortarW / 2, by + mortarW / 2, 3, blockH - mortarW);
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(bx + mortarW / 2, by + blockH - mortarW / 2 - 3, blockW - mortarW, 3);
+        ctx.fillRect(bx + blockW - mortarW / 2 - 3, by + mortarW / 2, 3, blockH - mortarW);
+      }
+      ctx.fillStyle = '#4a4e42';
+      ctx.fillRect(0, by, W, mortarW);
+    }
+    ctx.fillStyle = '#4a4e42';
+    ctx.fillRect(0, H - mortarW, W, mortarW);
+
+    for (let r = 0; r < blockRows; r++) {
+      const by = r * blockH;
+      const offset = r % 2 === 0 ? 0 : W / 4;
+      const blockW = W / 2;
+      for (let c = 0; c <= 2; c++) {
+        const mx = c * blockW + offset;
+        ctx.fillStyle = '#4a4e42';
+        ctx.fillRect(mx - mortarW / 2, by, mortarW, blockH);
+      }
+    }
+
+    // Rust streaks
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = '#8b5a2a';
+    ctx.fillRect(60, 100, 12, 140);
+    ctx.fillStyle = '#7a4a22';
+    ctx.fillRect(175, 30, 10, 90);
+    ctx.fillStyle = '#6a3a18';
+    ctx.fillRect(100, 175, 35, 70);
+    ctx.globalAlpha = 1;
+
+    addNoise(ctx, W, H, 20);
+  });
+}
+
+// ─── Wasteland Floor (Faded industrial tile, dust, wear) ───
+
+export function wastelandFloorTexture(): THREE.CanvasTexture {
+  return getOrCreate('wasteland-floor', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+    ctx.fillStyle = '#3a3e36';
+    ctx.fillRect(0, 0, W, H);
+
+    const tiles = 4;
+    const tileSize = W / tiles;
+    const groutW = 4;
+
+    for (let r = 0; r < tiles; r++) {
+      for (let c = 0; c < tiles; c++) {
+        const tx = c * tileSize;
+        const ty = r * tileSize;
+        const base = 68 + Math.floor(Math.random() * 18 - 9);
+        const green = base + 6;
+        ctx.fillStyle = `rgb(${base - 2}, ${green}, ${base - 4})`;
+        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, tileSize - groutW, tileSize - groutW);
+
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, tileSize - groutW, 2);
+        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, 2, tileSize - groutW);
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillRect(tx + groutW / 2, ty + tileSize - groutW / 2 - 2, tileSize - groutW, 2);
+        ctx.fillRect(tx + tileSize - groutW / 2 - 2, ty + groutW / 2, 2, tileSize - groutW);
+
+        if (Math.random() > 0.5) {
+          ctx.globalAlpha = 0.1;
+          ctx.strokeStyle = '#2a2a26';
+          ctx.lineWidth = 2;
+          const sx = tx + 10 + Math.random() * 30;
+          const sy = ty + 10 + Math.random() * 30;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx + Math.random() * 30 - 15, sy + Math.random() * 30 - 15);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+
+    ctx.fillStyle = '#2a2e28';
+    for (let i = 0; i <= tiles; i++) {
+      ctx.fillRect(0, i * tileSize - groutW / 2, W, groutW);
+      ctx.fillRect(i * tileSize - groutW / 2, 0, groutW, H);
+    }
+
+    addNoise(ctx, W, H, 16);
+  });
+}
+
+// ─── Wasteland Ceiling (Fluorescent with vent grilles, rust accents) ───
+
+export function wastelandCeilingTexture(): THREE.CanvasTexture {
+  return getOrCreate('wasteland-ceiling', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+    ctx.fillStyle = '#4a4e48';
+    ctx.fillRect(0, 0, W, H);
+
+    const panels = 2;
+    const panelSize = W / panels;
+    const frameW = 6;
+
+    for (let r = 0; r < panels; r++) {
+      for (let c = 0; c < panels; c++) {
+        const px = c * panelSize;
+        const py = r * panelSize;
+        const shade = 115 + Math.floor(Math.random() * 12 - 6);
+        ctx.fillStyle = `rgb(${shade}, ${shade - 2}, ${shade - 4})`;
+        ctx.fillRect(px + frameW, py + frameW, panelSize - frameW * 2, panelSize - frameW * 2);
+
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.fillRect(px + frameW, py + frameW, panelSize - frameW * 2, 4);
+        ctx.fillRect(px + frameW, py + frameW, 4, panelSize - frameW * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(px + frameW, py + panelSize - frameW - 4, panelSize - frameW * 2, 4);
+        ctx.fillRect(px + panelSize - frameW - 4, py + frameW, 4, panelSize - frameW * 2);
+
+        if (r === 0 && c === 1) {
+          ctx.fillStyle = 'rgba(0,0,0,0.18)';
+          for (let vy = py + 30; vy < py + panelSize - 30; vy += 12) {
+            for (let vx = px + 30; vx < px + panelSize - 30; vx += 12) {
+              ctx.beginPath();
+              ctx.arc(vx, vy, 2, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        }
+      }
+    }
+
+    ctx.fillStyle = '#555850';
+    for (let i = 0; i <= panels; i++) {
+      ctx.fillRect(0, i * panelSize - frameW / 2, W, frameW);
+      ctx.fillRect(i * panelSize - frameW / 2, 0, frameW, H);
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    for (let i = 0; i <= panels; i++) {
+      ctx.fillRect(0, i * panelSize - frameW / 2, W, 1);
+      ctx.fillRect(i * panelSize - frameW / 2, 0, 1, H);
+    }
+
+    // Fluorescent tubes — slight green tint (vault/industrial)
+    ctx.fillStyle = '#aacc99';
+    ctx.globalAlpha = 0.55;
+    ctx.fillRect(30, 50, 10, 56);
+    ctx.fillRect(86, 50, 10, 56);
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = '#ccffbb';
+    ctx.fillRect(20, 40, 86, 76);
+    ctx.globalAlpha = 1;
+
+    // Rust around one panel
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = '#8b5a2a';
+    ctx.fillRect(140, 140, 30, 12);
+    ctx.fillRect(100, 200, 50, 8);
+    ctx.globalAlpha = 1;
+
+    addNoise(ctx, W, H, 14);
+  });
+}
+
+// ─── Desert Sand (Outdoor ground — warm tan, wind ripples, grain) ───
+
+export function desertSandTexture(): THREE.CanvasTexture {
+  return getOrCreate('desert-sand', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+
+    // Base sand — warm tan
+    ctx.fillStyle = '#c4a882';
+    ctx.fillRect(0, 0, W, H);
+
+    // Wind ripple streaks — elongated darker/lighter bands
+    ctx.globalAlpha = 0.15;
+    for (let i = 0; i < 40; i++) {
+      const sx = Math.random() * W;
+      const sy = Math.random() * H;
+      const len = 30 + Math.random() * 60;
+      const grad = ctx.createLinearGradient(sx, sy, sx + len, sy + len * 0.2);
+      grad.addColorStop(0, 'rgba(180, 140, 90, 0.5)');
+      grad.addColorStop(0.5, 'rgba(210, 170, 120, 0.4)');
+      grad.addColorStop(1, 'rgba(160, 120, 70, 0.5)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(sx, sy, len, 3 + Math.random() * 5);
+    }
+    ctx.globalAlpha = 1;
+
+    // Small rocks / dark speckles
+    for (let i = 0; i < 80; i++) {
+      const shade = 90 + Math.floor(Math.random() * 40);
+      ctx.fillStyle = `rgb(${shade}, ${shade - 15}, ${shade - 25})`;
+      ctx.fillRect(Math.random() * W, Math.random() * H, 2 + Math.random() * 4, 2 + Math.random() * 4);
+    }
+
+    addNoise(ctx, W, H, 18);
+  });
+}
+
+// ─── Desert Ruin Wall (Dusty concrete, cracks, ochre tones) ───
+
+export function desertRuinWallTexture(): THREE.CanvasTexture {
+  return getOrCreate('desert-ruin-wall', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+
+    // Base — dusty ochre concrete
+    ctx.fillStyle = '#8b7355';
+    ctx.fillRect(0, 0, W, H);
+
+    // Brick/cinder block pattern (weathered)
+    const blockRows = 6;
+    const blockH = H / blockRows;
+    const mortarW = 3;
+
+    for (let r = 0; r < blockRows; r++) {
+      const by = r * blockH;
+      const offset = r % 2 === 0 ? 0 : W / 6;
+      const blocksPerRow = 3;
+      const blockW = W / blocksPerRow;
+
+      for (let c = -1; c <= blocksPerRow; c++) {
+        const bx = c * blockW + offset;
+        const base = 120 + Math.floor(Math.random() * 30 - 15);
+        const g = base - 20;
+        const b = base - 35;
+        ctx.fillStyle = `rgb(${base}, ${g}, ${b})`;
+        ctx.fillRect(bx + mortarW / 2, by + mortarW / 2, blockW - mortarW, blockH - mortarW);
+      }
+      ctx.fillStyle = '#6a5340';
+      ctx.fillRect(0, by, W, mortarW);
+    }
+    ctx.fillStyle = '#6a5340';
+    ctx.fillRect(0, H - mortarW, W, mortarW);
+
+    // Cracks
+    ctx.globalAlpha = 0.2;
+    ctx.strokeStyle = '#4a3828';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
+      let x = Math.random() * W;
+      let y = Math.random() * H;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let j = 0; j < 5; j++) {
+        x += (Math.random() - 0.5) * 40;
+        y += (Math.random() - 0.3) * 35;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Sand/dust stains
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = '#a08060';
+    ctx.fillRect(40, 180, 50, 20);
+    ctx.fillRect(160, 60, 35, 100);
+    ctx.globalAlpha = 1;
+
+    addNoise(ctx, W, H, 22);
+  });
+}
+
 // ─── Wood Crate (Classic military crate with planks, braces, markings) ───
 
 export function palaceMarbleFloorTexture(): THREE.CanvasTexture {
@@ -1216,6 +1507,174 @@ export function doorFrameTexture(): THREE.CanvasTexture {
     }
 
     addNoise(ctx, W, H, 10);
+  });
+}
+
+// ─── Vehicle Body (Weathered metal, rust, faded paint — Fallout/post-apocalyptic desert) ───
+
+export function vehicleBodyTexture(): THREE.CanvasTexture {
+  return getOrCreate('vehicle-body', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+
+    // Base — exposed steel (dark grey-blue)
+    ctx.fillStyle = '#4a4e52';
+    ctx.fillRect(0, 0, W, H);
+
+    // Faded paint remnants — olive drab / military green patches
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#5a6048';
+    ctx.fillRect(0, 0, W * 0.4, H);
+    ctx.fillRect(W * 0.6, H * 0.2, W * 0.4, H * 0.6);
+    ctx.fillStyle = '#4a5040';
+    ctx.fillRect(W * 0.2, H * 0.5, W * 0.5, H * 0.4);
+    ctx.globalAlpha = 1;
+
+    // Rust streaks and patches (ochre, burnt sienna)
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#8b5a2a';
+    ctx.fillRect(20, 80, 8, 120);
+    ctx.fillRect(140, 40, 12, 90);
+    ctx.fillStyle = '#7a4a22';
+    ctx.fillRect(180, 150, 10, 80);
+    ctx.fillStyle = '#6a3a18';
+    ctx.fillRect(60, 200, 35, 40);
+    ctx.fillRect(220, 20, 20, 60);
+    ctx.globalAlpha = 1;
+
+    // Panel seam lines (car body panels)
+    ctx.strokeStyle = 'rgba(40, 42, 48, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(W / 2, 0);
+    ctx.lineTo(W / 2, H);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, H / 3);
+    ctx.lineTo(W, H / 3);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, (H * 2) / 3);
+    ctx.lineTo(W, (H * 2) / 3);
+    ctx.stroke();
+
+    // Scratches and scrape marks (lighter exposed metal)
+    ctx.globalAlpha = 0.15;
+    ctx.strokeStyle = '#7a8088';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 12; i++) {
+      const sx = Math.random() * W;
+      const sy = Math.random() * H;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + (Math.random() - 0.5) * 80, sy + (Math.random() - 0.5) * 60);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Dust/sand accumulation (lighter bands at bottom)
+    const dustGrad = ctx.createLinearGradient(0, 0, 0, H);
+    dustGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    dustGrad.addColorStop(0.6, 'rgba(0,0,0,0)');
+    dustGrad.addColorStop(0.9, 'rgba(180, 150, 110, 0.12)');
+    dustGrad.addColorStop(1, 'rgba(200, 170, 130, 0.2)');
+    ctx.fillStyle = dustGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Edge bevel (top/left highlight, bottom/right shadow)
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(0, 0, W, 2);
+    ctx.fillRect(0, 0, 2, H);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(0, H - 2, W, 2);
+    ctx.fillRect(W - 2, 0, 2, H);
+
+    addNoise(ctx, W, H, 22);
+  });
+}
+
+// ─── Vehicle Wheel (Worn rubber tire sidewall — wraps on cylinder) ───
+
+export function vehicleWheelTexture(): THREE.CanvasTexture {
+  return getOrCreate('vehicle-wheel', 128, 64, (ctx) => {
+    const W = 128, H = 64;
+
+    // Base — dark rubber
+    ctx.fillStyle = '#222226';
+    ctx.fillRect(0, 0, W, H);
+
+    // Horizontal bands (tire sidewall ribs)
+    for (let y = 8; y < H; y += 12) {
+      const shade = 45 + Math.floor(Math.random() * 15);
+      ctx.fillStyle = `rgb(${shade}, ${shade - 2}, ${shade + 2})`;
+      ctx.fillRect(0, y, W, 6);
+    }
+
+    // Rim flange (lighter metal strip)
+    ctx.fillStyle = '#4a4a50';
+    ctx.fillRect(0, 2, W, 4);
+    ctx.fillRect(0, H - 6, W, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillRect(0, 2, W, 1);
+    ctx.fillRect(0, H - 6, W, 1);
+
+    // Dust/sand accumulation (desert weathering)
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = '#8a7560';
+    ctx.fillRect(0, H - 8, W, 6);
+    ctx.globalAlpha = 1;
+
+    addNoise(ctx, W, H, 12);
+  });
+}
+
+// ─── Debris/Rubble (Crumbled concrete, stone chunks — desert ruins) ───
+
+export function debrisRubbleTexture(): THREE.CanvasTexture {
+  return getOrCreate('debris-rubble', 256, 256, (ctx) => {
+    const W = 256, H = 256;
+
+    // Base — grey-brown weathered concrete
+    ctx.fillStyle = '#6b5a4a';
+    ctx.fillRect(0, 0, W, H);
+
+    // Lighter aggregate pieces
+    for (let i = 0; i < 60; i++) {
+      const shade = 110 + Math.floor(Math.random() * 40);
+      const g = shade - 25;
+      const b = shade - 45;
+      ctx.fillStyle = `rgb(${shade}, ${g}, ${b})`;
+      ctx.fillRect(
+        Math.random() * (W - 12),
+        Math.random() * (H - 8),
+        4 + Math.random() * 12,
+        3 + Math.random() * 8,
+      );
+    }
+
+    // Darker crevices and cracks
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#4a3a30';
+    ctx.fillRect(30, 80, 25, 4);
+    ctx.fillRect(100, 150, 40, 3);
+    ctx.fillRect(180, 40, 15, 50);
+    ctx.fillRect(50, 200, 60, 5);
+    ctx.globalAlpha = 1;
+
+    // Sand/dust in crevices
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = '#a09070';
+    ctx.fillRect(35, 82, 15, 2);
+    ctx.fillRect(105, 151, 30, 2);
+    ctx.globalAlpha = 1;
+
+    // Chipped edges (lighter exposed interior)
+    ctx.fillStyle = 'rgba(140, 125, 100, 0.3)';
+    ctx.fillRect(0, 0, W, 3);
+    ctx.fillRect(0, 0, 3, H);
+    ctx.fillRect(W - 3, 0, 3, H);
+    ctx.fillRect(0, H - 3, W, 3);
+
+    addNoise(ctx, W, H, 24);
   });
 }
 

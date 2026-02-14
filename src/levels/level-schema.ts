@@ -7,7 +7,7 @@ export interface LevelSchema {
   /** Level display name */
   name: string;
   /** Optional visual theme hint for level builder materials. */
-  theme?: 'default' | 'palace';
+  theme?: 'default' | 'palace' | 'wasteland' | 'desert';
   /** Brief description for briefing screen */
   briefing: string;
   /** Axis-aligned rooms (floor + walls built from these) */
@@ -129,7 +129,7 @@ export interface PropLoot {
 }
 
 export interface PropDef {
-  type: 'crate' | 'barrel' | 'crate_metal';
+  type: 'crate' | 'barrel' | 'crate_metal' | 'vehicle_car' | 'vehicle_truck' | 'debris';
   x: number;
   y: number;
   z: number;

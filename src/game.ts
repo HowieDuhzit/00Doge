@@ -18,7 +18,7 @@ import { TriggerSystem } from './levels/trigger-system';
 import { ObjectiveSystem } from './levels/objective-system';
 import { buildLevel } from './levels/level-builder';
 import type { LevelSchema } from './levels/level-schema';
-import { createProceduralMultiplayerArena } from './levels/multiplayer-arena';
+import { createMultiplayerArena } from './levels/multiplayer-arena';
 import { NavMesh } from './navmesh/navmesh';
 import { DestructibleSystem } from './levels/destructible-system';
 import { HUD } from './ui/hud';
@@ -72,6 +72,10 @@ export interface GameOptions {
   levelMode?: boolean;
   networkMode?: 'local' | 'client';
   networkManager?: NetworkManager;
+  /** Multiplayer map to load. Default: 'crossfire'. */
+  mapId?: 'crossfire' | 'wasteland' | 'dust';
+  /** Pre-loaded level schema (for Dust District multiplayer). When set, used instead of createMultiplayerArena. */
+  levelSchema?: LevelSchema;
 }
 
 export class Game {
@@ -483,7 +487,9 @@ export class Game {
       this.triggerSystem = new TriggerSystem(() => this.player.getPosition());
       this.triggerSystem.onTrigger = (event) => this.handleTrigger(event);
       this.objectiveSystem = new ObjectiveSystem();
-      this.loadLevel(createProceduralMultiplayerArena());
+      const mpMapId = options.mapId ?? 'crossfire';
+      const mpLevel = options.levelSchema ?? createMultiplayerArena(mpMapId === 'dust' ? 'crossfire' : mpMapId);
+      this.loadLevel(mpLevel);
     } else {
       this.buildTestScene();
       this.spawnTestEnemies();
@@ -849,7 +855,7 @@ export class Game {
   /**
    * Apply destroyed destructibles from server (for new joiners + sync).
    */
-  private syncDestroyedDestructibles(destroyed?: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' }>): void {
+  private syncDestroyedDestructibles(destroyed?: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' | 'vehicle_car' | 'vehicle_truck' }>): void {
     if (!destroyed) return;
     for (const d of destroyed) {
       if (this.processedDestructibleIds.has(d.propId)) continue;

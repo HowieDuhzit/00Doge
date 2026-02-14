@@ -9,6 +9,14 @@
 export interface PlayerConnectedEvent {
   playerId: string;
   username: string;
+  mapId?: 'crossfire' | 'wasteland' | 'dust';
+}
+
+/**
+ * Message sent by server to a newly connected player with the room's map.
+ */
+export interface RoomJoinedEvent {
+  roomMapId: 'crossfire' | 'wasteland' | 'dust';
 }
 
 /**
@@ -47,7 +55,7 @@ export type WeaponType = 'pistol' | 'rifle' | 'shotgun' | 'sniper';
 export interface DestroyedDestructible {
   propId: string;
   position: { x: number; y: number; z: number };
-  type: 'crate' | 'crate_metal' | 'barrel';
+  type: 'crate' | 'crate_metal' | 'barrel' | 'vehicle_car' | 'vehicle_truck';
 }
 
 /**
@@ -161,7 +169,7 @@ export interface FlashlightToggleEvent {
 export interface DestructibleDestroyedEvent {
   propId: string; // Unique ID for the prop
   position: { x: number; y: number; z: number };
-  type: 'crate' | 'crate_metal' | 'barrel';
+  type: 'crate' | 'crate_metal' | 'barrel' | 'vehicle_car' | 'vehicle_truck';
   timestamp: number;
 }
 

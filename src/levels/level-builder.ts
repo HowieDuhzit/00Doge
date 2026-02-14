@@ -16,12 +16,21 @@ import {
   palaceMarbleFloorTexture,
   palaceCeilingTexture,
   palacePaintingTexture,
+  wastelandWallTexture,
+  wastelandFloorTexture,
+  wastelandCeilingTexture,
+  desertSandTexture,
+  desertRuinWallTexture,
   woodCrateTexture,
   metalCrateTexture,
   barrelTexture,
+  vehicleBodyTexture,
+  vehicleWheelTexture,
+  debrisRubbleTexture,
   snowGroundTexture,
   mountainWallTexture,
 } from './procedural-textures';
+import { addSkyDome } from './sky-dome';
 
 const WALL_THICKNESS = 0.2;
 const FLOOR_TILE_SIZE = 3.0;
@@ -66,21 +75,48 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
   // Lights — ambient + hemisphere, point lights per room
   const hasOutdoor = level.rooms.some((r) => r.outdoor);
   const isPalace = level.theme === 'palace';
-  const ambientColor = hasOutdoor ? 0xaaccdd : 0x8899aa;
-  const ambient = new THREE.AmbientLight(ambientColor, hasOutdoor ? 2.2 : 1.8);
+  const isWasteland = level.theme === 'wasteland';
+  const isDesert = level.theme === 'desert';
+
+  // Desert: sun, sky dome, scene background/fog
+  if (isDesert && hasOutdoor) {
+    scene.background = new THREE.Color(0x87ceeb);
+    scene.fog = new THREE.Fog(0xd4c4a0, 40, 120);
+    addSkyDome(scene);
+
+    const sun = new THREE.DirectionalLight(0xffeedd, 1.8);
+    sun.position.set(30, 50, 40);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 150;
+    sun.shadow.camera.left = -40;
+    sun.shadow.camera.right = 40;
+    sun.shadow.camera.top = 40;
+    sun.shadow.camera.bottom = -40;
+    sun.shadow.bias = -0.0001;
+    scene.add(sun);
+  }
+
+  const ambientColor = isDesert && hasOutdoor ? 0xe8d8b8 : hasOutdoor ? 0xaaccdd : isWasteland ? 0xc4a882 : 0x8899aa;
+  const ambientIntensity = isDesert && hasOutdoor ? 1.2 : hasOutdoor ? 2.2 : isWasteland ? 1.6 : 1.8;
+  const ambient = new THREE.AmbientLight(ambientColor, ambientIntensity);
   scene.add(ambient);
 
-  const hemiSky = hasOutdoor ? 0xeef5ff : 0xddeeff;
-  const hemiGround = hasOutdoor ? 0xccdddd : 0x445544;
-  const hemi = new THREE.HemisphereLight(hemiSky, hemiGround, hasOutdoor ? 1.1 : 0.9);
+  const hemiSky = isDesert && hasOutdoor ? 0x87ceeb : hasOutdoor ? 0xeef5ff : isWasteland ? 0xeed8bb : 0xddeeff;
+  const hemiGround = isDesert && hasOutdoor ? 0xc4a060 : hasOutdoor ? 0xccdddd : isWasteland ? 0x554433 : 0x445544;
+  const hemiIntensity = isDesert && hasOutdoor ? 0.7 : hasOutdoor ? 1.1 : isWasteland ? 0.85 : 0.9;
+  const hemi = new THREE.HemisphereLight(hemiSky, hemiGround, hemiIntensity);
   scene.add(hemi);
 
   for (const room of level.rooms) {
     const [lx, ly, lz] = [room.x, room.y + 1.5, room.z];
+    const ptIntensity =
+      room.outdoor && isDesert ? 40 : room.outdoor ? 120 : isWasteland ? 85 : isPalace ? 95 : 80;
     const pointLight = new THREE.PointLight(
-      room.outdoor ? 0xeeddcc : isPalace ? 0xffefcc : 0xffeedd,
-      room.outdoor ? 120 : isPalace ? 95 : 80,
-      25,
+      room.outdoor ? 0xeeddcc : isWasteland ? 0xccffaa : isPalace ? 0xffefcc : 0xffeedd,
+      ptIntensity,
+      isWasteland ? 22 : 25,
     );
     pointLight.position.set(lx, ly, lz);
     pointLight.castShadow = true;
@@ -89,42 +125,44 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
   }
 
   // Materials — procedural textures
-  const floorTex = isPalace ? palaceMarbleFloorTexture() : floorTileTexture();
-  const wallTex = isPalace ? palaceWallTexture() : concreteWallTexture();
-  const ceilTex = isPalace ? palaceCeilingTexture() : ceilingPanelTexture();
+  const floorTex = isWasteland ? wastelandFloorTexture() : isPalace ? palaceMarbleFloorTexture() : floorTileTexture();
+  const wallTex = isWasteland ? wastelandWallTexture() : isPalace ? palaceWallTexture() : concreteWallTexture();
+  const ceilTex = isWasteland ? wastelandCeilingTexture() : isPalace ? palaceCeilingTexture() : ceilingPanelTexture();
   const snowTex = snowGroundTexture();
   const mountainTex = mountainWallTexture();
+  const desertSandTex = desertSandTexture();
+  const desertRuinTex = desertRuinWallTexture();
 
-  const floorMat = (color = 0x888888, useSnow = false, width = 8, depth = 8) => {
-    const tex = (useSnow ? snowTex : floorTex).clone();
+  const floorMat = (color = 0x888888, useSnow = false, useDesert = false, width = 8, depth = 8) => {
+    const tex = (useDesert ? desertSandTex : useSnow ? snowTex : floorTex).clone();
     tex.needsUpdate = true;
-    tex.repeat.set(
-      repeatForSize(width, useSnow ? 3.2 : FLOOR_TILE_SIZE),
-      repeatForSize(depth, useSnow ? 3.2 : FLOOR_TILE_SIZE),
-    );
+    const tileSize = useDesert || useSnow ? 3.2 : FLOOR_TILE_SIZE;
+    tex.repeat.set(repeatForSize(width, tileSize), repeatForSize(depth, tileSize));
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
+    const roughness = useDesert ? 0.9 : useSnow ? 0.9 : isWasteland ? 0.75 : isPalace ? 0.26 : 0.8;
+    const metalness = useDesert ? 0.05 : useSnow ? 0.05 : isWasteland ? 0.12 : isPalace ? 0.05 : 0.2;
     return new THREE.MeshStandardMaterial({
       map: tex,
       color,
-      roughness: useSnow ? 0.9 : isPalace ? 0.26 : 0.8,
-      metalness: useSnow ? 0.05 : isPalace ? 0.05 : 0.2,
+      roughness,
+      metalness,
     });
   };
-  const wallMat = (color = 0x999999, useMountain = false, span = 6, wallHeight = 4) => {
-    const tex = (useMountain ? mountainTex : wallTex).clone();
+  const wallMat = (color = 0x999999, useMountain = false, useDesertRuin = false, span = 6, wallHeight = 4) => {
+    const tex = (useDesertRuin ? desertRuinTex : useMountain ? mountainTex : wallTex).clone();
     tex.needsUpdate = true;
-    tex.repeat.set(
-      repeatForSize(span, useMountain ? 3.0 : WALL_TILE_WIDTH),
-      repeatForSize(wallHeight, useMountain ? 2.8 : WALL_TILE_HEIGHT),
-    );
+    const [tileW, tileH] = useDesertRuin || useMountain ? [3.0, 2.8] : [WALL_TILE_WIDTH, WALL_TILE_HEIGHT];
+    tex.repeat.set(repeatForSize(span, tileW), repeatForSize(wallHeight, tileH));
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
+    const roughness = useDesertRuin ? 0.85 : useMountain ? 0.85 : isWasteland ? 0.75 : isPalace ? 0.46 : 0.7;
+    const metalness = useDesertRuin ? 0.05 : useMountain ? 0.05 : isWasteland ? 0.12 : isPalace ? 0.08 : 0.1;
     return new THREE.MeshStandardMaterial({
       map: tex,
       color,
-      roughness: useMountain ? 0.85 : isPalace ? 0.46 : 0.7,
-      metalness: useMountain ? 0.05 : isPalace ? 0.08 : 0.1,
+      roughness,
+      metalness,
     });
   };
   const ceilingMat = (_color = 0x888888, width = 8, depth = 8) => {
@@ -136,11 +174,13 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
     );
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
+    const roughness = isWasteland ? 0.8 : isPalace ? 0.55 : 0.9;
+    const metalness = isWasteland ? 0.08 : isPalace ? 0.04 : 0;
     return new THREE.MeshStandardMaterial({
       map: tex,
       color: _color,
-      roughness: isPalace ? 0.55 : 0.9,
-      metalness: isPalace ? 0.04 : 0,
+      roughness,
+      metalness,
     });
   };
 
@@ -148,10 +188,10 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
   const indoorRooms = level.rooms.filter((r) => !r.outdoor);
   const outdoorRooms = level.rooms.filter((r) => r.outdoor);
   for (const room of indoorRooms) {
-    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, null, isPalace);
+    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, null, isPalace, isWasteland, isDesert);
   }
   for (const room of outdoorRooms) {
-    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, indoorRooms, isPalace);
+    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, indoorRooms, isPalace, isWasteland, isDesert);
   }
 
   if (isPalace) {
@@ -270,16 +310,27 @@ function buildRoom(
   doors: DoorDef[],
   scene: THREE.Scene,
   physics: PhysicsWorld,
-  floorMat: (c: number | undefined, useSnow: boolean, width: number, depth: number) => THREE.Material,
-  wallMat: (c: number | undefined, useMountain: boolean, span: number, wallHeight: number) => THREE.Material,
+  floorMat: (c: number | undefined, useSnow: boolean, useDesert: boolean, width: number, depth: number) => THREE.Material,
+  wallMat: (c: number | undefined, useMountain: boolean, useDesertRuin: boolean, span: number, wallHeight: number) => THREE.Material,
   ceilingMat: (c: number | undefined, width: number, depth: number) => THREE.Material,
   indoorRooms: RoomDef[] | null,
   palaceTheme: boolean,
+  wastelandTheme: boolean = false,
+  desertTheme: boolean = false,
 ): void {
   const { x, y, z, width, depth, height } = room;
   const outdoor = room.outdoor ?? false;
-  const fColor = room.floorColor ?? (outdoor ? 0xe8eef4 : palaceTheme ? 0xf2eadf : 0x555555);
-  const wColor = room.wallColor ?? (outdoor ? 0x7a7e82 : palaceTheme ? 0xe3d6c2 : 0x666666);
+  const useDesert = outdoor && desertTheme;
+  const useSnow = outdoor && !desertTheme;
+  const useDesertRuin = outdoor && desertTheme;
+  const useMountain = outdoor && !desertTheme;
+
+  const fColor =
+    room.floorColor ??
+    (outdoor ? (desertTheme ? 0xc4a060 : 0xe8eef4) : wastelandTheme ? 0x6a6e62 : palaceTheme ? 0xf2eadf : 0x555555);
+  const wColor =
+    room.wallColor ??
+    (outdoor ? (desertTheme ? 0x8b7355 : 0x7a7e82) : wastelandTheme ? 0x5a5e52 : palaceTheme ? 0xe3d6c2 : 0x666666);
   const hw = width / 2;
   const hd = depth / 2;
   const hh = height / 2;
@@ -292,7 +343,7 @@ function buildRoom(
       if (rect.w < 0.5 || rect.d < 0.5) continue;
       const floor = new THREE.Mesh(
         new THREE.BoxGeometry(rect.w, WALL_THICKNESS, rect.d),
-        floorMat(fColor, outdoor, rect.w, rect.d),
+        floorMat(fColor, useSnow, useDesert, rect.w, rect.d),
       );
       floor.position.set(rect.cx, floorY, rect.cz);
       floor.receiveShadow = true;
@@ -302,7 +353,7 @@ function buildRoom(
   } else {
     const floor = new THREE.Mesh(
       new THREE.BoxGeometry(width, WALL_THICKNESS, depth),
-      floorMat(fColor, outdoor, width, depth),
+      floorMat(fColor, useSnow, useDesert, width, depth),
     );
     floor.position.set(x, floorY, z);
     floor.receiveShadow = true;
@@ -353,7 +404,7 @@ function buildRoom(
     const wallHeight = halfH * 2;
     const wall = new THREE.Mesh(
       new THREE.BoxGeometry(halfW * 2, halfH * 2, halfD * 2),
-      wallMat(wColor, outdoor, span, wallHeight),
+      wallMat(wColor, useMountain, useDesertRuin, span, wallHeight),
     );
     wall.position.set(px, py, pz);
     wall.receiveShadow = true;
@@ -547,6 +598,107 @@ function buildProp(
     scene.add(mesh);
     const collider = physics.createStaticCuboid(0.4 * scale, 0.6 * scale, 0.4 * scale, x, baseY + 0.6 * scale, z);
     destructible.register(mesh, collider, 'barrel', undefined, 0.8 * scale, prop.loot);
+  } else if (prop.type === 'vehicle_car' || prop.type === 'vehicle_truck') {
+    const isTruck = prop.type === 'vehicle_truck';
+    const bodyMat = new THREE.MeshStandardMaterial({
+      map: vehicleBodyTexture(),
+      roughness: 0.85,
+      metalness: 0.4,
+    });
+    const wheelMat = new THREE.MeshStandardMaterial({
+      map: vehicleWheelTexture(),
+      roughness: 0.9,
+      metalness: 0.15,
+    });
+    const group = new THREE.Group();
+    group.position.set(x, baseY, z);
+
+    const cabW = isTruck ? 1.4 : 1.2;
+    const cabH = isTruck ? 0.9 : 0.8;
+    const cabD = isTruck ? 1.6 : 1.4;
+    const cab = new THREE.Mesh(
+      new THREE.BoxGeometry(cabW * scale, cabH * scale, cabD * scale),
+      bodyMat,
+    );
+    cab.position.y = cabH * scale * 0.5;
+    cab.castShadow = true;
+    group.add(cab);
+
+    const bedW = isTruck ? 1.2 : 0;
+    const bedD = isTruck ? 1.6 : 0;
+    if (isTruck && bedW > 0) {
+      const bed = new THREE.Mesh(
+        new THREE.BoxGeometry(bedW * scale, 0.5 * scale, bedD * scale),
+        bodyMat,
+      );
+      bed.position.set(0, cabH * scale * 0.5 + 0.25 * scale, cabD * scale * 0.5 + bedD * scale * 0.5 + 0.1);
+      bed.castShadow = true;
+      group.add(bed);
+    }
+
+    const wheelR = 0.25 * scale;
+    const wheelH = 0.1 * scale;
+    const wheelY = wheelR + 0.02;
+    const wheelZ = (cabD * scale) / 2 - 0.1;
+    const wheelX = (cabW * scale) / 2 + 0.05;
+    const wheelGeo = new THREE.CylinderGeometry(wheelR, wheelR, wheelH, 12);
+    const positions: [number, number, number][] = [
+      [-wheelX, wheelY, -wheelZ],
+      [wheelX, wheelY, -wheelZ],
+      [-wheelX, wheelY, wheelZ],
+      [wheelX, wheelY, wheelZ],
+    ];
+    if (isTruck) {
+      positions.push([-wheelX * 0.8, wheelY, wheelZ + bedD * scale * 0.5]);
+      positions.push([wheelX * 0.8, wheelY, wheelZ + bedD * scale * 0.5]);
+    }
+    for (const [wx, wy, wz] of positions) {
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(wx, wy, wz);
+      wheel.castShadow = true;
+      group.add(wheel);
+    }
+
+    group.castShadow = true;
+    group.receiveShadow = true;
+    scene.add(group);
+
+    const totalLen = isTruck ? cabD * scale + bedD * scale + 0.2 : cabD * scale;
+    const colliderW = (cabW * scale) / 2 + 0.2;
+    const colliderH = (cabH * scale) / 2 + wheelR;
+    const colliderD = totalLen / 2 + 0.1;
+    const collider = physics.createStaticCuboid(colliderW, colliderH, colliderD, x, baseY + colliderH, z);
+    destructible.register(group, collider, prop.type, undefined, Math.max(cabW, totalLen) * scale, prop.loot);
+  } else if (prop.type === 'debris') {
+    const rubbleMat = new THREE.MeshStandardMaterial({
+      map: debrisRubbleTexture(),
+      roughness: 0.95,
+      metalness: 0.05,
+    });
+    const count = 2 + Math.floor((Math.abs((x * 7 + z * 11) % 3)));
+    const group = new THREE.Group();
+    group.position.set(x, baseY, z);
+
+    for (let i = 0; i < count; i++) {
+      const bw = 0.4 + (i * 0.17) % 0.5;
+      const bh = 0.25 + (i * 0.13) % 0.35;
+      const bd = 0.5 + (i * 0.19) % 0.4;
+      const box = new THREE.Mesh(new THREE.BoxGeometry(bw * scale, bh * scale, bd * scale), rubbleMat);
+      box.position.set(
+        ((i % 3) - 1) * 0.35 * scale,
+        bh * scale * 0.5 + (i * 0.1) % 0.2,
+        ((i % 2) - 0.5) * 0.4 * scale,
+      );
+      box.rotation.set((i * 0.4) % 0.5, (i * 0.3) % 0.6, (i * 0.2) % 0.4);
+      box.castShadow = true;
+      box.receiveShadow = true;
+      group.add(box);
+    }
+
+    scene.add(group);
+    const halfExt = 0.5 * scale;
+    physics.createStaticCuboid(halfExt, halfExt * 0.5, halfExt, x, baseY + halfExt * 0.5, z);
   }
 }
 
