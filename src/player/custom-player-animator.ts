@@ -111,7 +111,7 @@ function applyFootIK(mesh: THREE.Object3D, ik: FootIKParams, floorY: number): vo
 
 const DEATH_SINK = 0.9;
 
-export type PlayerAnimState = 'idle' | 'walk' | 'death' | 'attack';
+export type PlayerAnimState = 'idle' | 'walk' | 'death' | 'attack' | 'hit';
 
 /** Called each frame with pelvis world position and rotation when ragdoll is active */
 export type RagdollPelvisCallback = (pos: THREE.Vector3, quat: THREE.Quaternion) => void;
@@ -162,6 +162,8 @@ export class CustomPlayerAnimator {
         if (/\b(attack|shoot|fire|aim|aiming)\b/i.test(clip.name) || /shoot|fire|attack|aim/i.test(nm)) {
           if (!this.clipMap.has('attack')) this.clipMap.set('attack', { clip, duration: clip.duration });
         }
+        if (/\bhit\b|\bhurt\b|\bdamage\b|\brecoil\b/i.test(clip.name) || /hit|hurt|damage/i.test(nm))
+          this.clipMap.set('hit', { clip, duration: clip.duration });
         if (/\brun\b/i.test(clip.name) && !this.clipMap.has('walk'))
           this.clipMap.set('walk', { clip, duration: clip.duration });
       }
@@ -205,6 +207,33 @@ export class CustomPlayerAnimator {
   resetMeshPosition(): void {
     const mesh = this.mixer.getRoot() as THREE.Object3D;
     mesh.position.y = this.meshBaseY;
+  }
+
+  /**
+   * Full reset for respawn: dispose ragdoll, reset skeleton from ragdoll/death pose to bind pose,
+   * then apply idle so the character stands correctly.
+   */
+  resetForRespawn(): void {
+    this.disposeRagdoll();
+    this.resetMeshPosition();
+
+    // Reset skeleton to bind pose so ragdoll/death pose is cleared before applying idle
+    const skinned = this.findSkinnedMesh(this.mesh);
+    if (skinned?.skeleton) {
+      skinned.skeleton.pose();
+    }
+
+    this.play('idle', true);
+    this.mixer.update(0); // Apply idle pose immediately
+  }
+
+  private findSkinnedMesh(obj: THREE.Object3D): THREE.SkinnedMesh | null {
+    if (obj instanceof THREE.SkinnedMesh) return obj;
+    for (const c of obj.children) {
+      const found = this.findSkinnedMesh(c);
+      if (found) return found;
+    }
+    return null;
   }
 
   get isRagdollActive(): boolean {
@@ -260,21 +289,27 @@ export class CustomPlayerAnimator {
     }
     if (!entry) return;
 
-    // Don't override attack/death while they're still playing (one-shot clips)
-    const isOneShot = name === 'death' || name === 'attack';
+    // Don't override attack/death/hit while they're still playing (one-shot clips)
+    const isOneShot = name === 'death' || name === 'attack' || name === 'hit';
     if (isOneShot) {
       const curClip = this.currentAction?.getClip();
-      const isAttackOrDeath =
+      const isAttackDeathOrHit =
         curClip?.name?.toLowerCase().includes('attack') ||
         curClip?.name?.toLowerCase().includes('shoot') ||
-        curClip?.name?.toLowerCase().includes('death');
-      if (isAttackOrDeath && this.currentAction?.isRunning?.() && !force) return;
+        curClip?.name?.toLowerCase().includes('death') ||
+        curClip?.name?.toLowerCase().includes('hit') ||
+        curClip?.name?.toLowerCase().includes('hurt') ||
+        curClip?.name?.toLowerCase().includes('damage');
+      if (isAttackDeathOrHit && this.currentAction?.isRunning?.() && !force) return;
     } else {
-      // When requesting idle/walk, don't cut off a playing attack
+      // When requesting idle/walk, don't cut off a playing attack or hit
       const curClip = this.currentAction?.getClip();
       const curIsOneShot =
         curClip?.name?.toLowerCase().includes('attack') ||
-        curClip?.name?.toLowerCase().includes('shoot');
+        curClip?.name?.toLowerCase().includes('shoot') ||
+        curClip?.name?.toLowerCase().includes('hit') ||
+        curClip?.name?.toLowerCase().includes('hurt') ||
+        curClip?.name?.toLowerCase().includes('damage');
       if (curIsOneShot && this.currentAction?.isRunning?.()) return;
     }
 
@@ -283,10 +318,10 @@ export class CustomPlayerAnimator {
     this.currentAction = this.mixer.clipAction(entry.clip);
     this.currentAction.reset();
     this.currentAction.setLoop(
-      name === 'death' || name === 'attack' ? THREE.LoopOnce : THREE.LoopRepeat,
+      name === 'death' || name === 'attack' || name === 'hit' ? THREE.LoopOnce : THREE.LoopRepeat,
       Infinity
     );
-    this.currentAction.clampWhenFinished = name === 'death' || name === 'attack';
+    this.currentAction.clampWhenFinished = name === 'death' || name === 'attack' || name === 'hit';
     this.currentAction.play();
   }
 

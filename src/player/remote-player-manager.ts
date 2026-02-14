@@ -4,6 +4,9 @@ import { RemotePlayer } from './remote-player';
 import type { GameStateSnapshot } from '../network/network-events';
 import type { PhysicsWorld } from '../core/physics-world';
 
+/** Callback to get camera world position for sprite billboarding */
+export type GetCameraPosition = () => THREE.Vector3;
+
 /**
  * RemotePlayerManager manages all remote players in a multiplayer session.
  * Handles spawning, updating, and removing remote players.
@@ -14,11 +17,18 @@ export class RemotePlayerManager {
   private players: Map<string, RemotePlayer> = new Map();
   private colliderToPlayerId: Map<number, string> = new Map(); // Collider handle -> player ID
   private getLocalPlayerId: () => string | null;
+  private getCameraPosition: GetCameraPosition | null;
 
-  constructor(scene: THREE.Scene, physics: PhysicsWorld, getLocalPlayerId: () => string | null) {
+  constructor(
+    scene: THREE.Scene,
+    physics: PhysicsWorld,
+    getLocalPlayerId: () => string | null,
+    getCameraPosition: GetCameraPosition | null = null
+  ) {
     this.scene = scene;
     this.physics = physics;
     this.getLocalPlayerId = getLocalPlayerId ?? (() => null);
+    this.getCameraPosition = getCameraPosition ?? null;
   }
 
   /**
@@ -41,7 +51,13 @@ export class RemotePlayerManager {
       let remotePlayer = this.players.get(playerId);
       if (!remotePlayer) {
         const username = (playerState as { username?: string }).username ?? playerId;
-        remotePlayer = new RemotePlayer(playerId, username, this.scene, this.physics);
+        remotePlayer = new RemotePlayer(
+          playerId,
+          username,
+          this.scene,
+          this.physics,
+          this.getCameraPosition
+        );
         this.players.set(playerId, remotePlayer);
 
         // Map collider handle to player ID for hit detection

@@ -8,10 +8,18 @@ import type { PlayerStateUpdate } from '../network/network-events';
 import type { PhysicsWorld } from '../core/physics-world';
 import { WeaponViewModel } from '../weapons/weapon-view-model';
 import type { WeaponType } from '../weapons/weapon-view-model';
+import { ENEMY_RENDER_CONFIG } from '../enemies/enemy-render-config';
+import { EnemySprite } from '../enemies/sprite/enemy-sprite';
+import { getPreloadedSpriteTexture, GUARD_VARIANTS } from '../enemies/sprite/guard-sprite-sheet';
+import { bakeGuardSpriteSheet, bakeCustomModelSpriteSheet } from '../enemies/sprite/sprite-baker';
+
+/** Callback to get camera world position for sprite billboarding */
+type GetCameraPosition = () => THREE.Vector3;
 
 /**
  * RemotePlayer represents another player in the multiplayer game.
  * Handles rendering, interpolation, animation, and physics collider.
+ * Supports both 3D model and 2D sprite modes (when ENEMY_RENDER_CONFIG.mode === 'sprite').
  */
 export class RemotePlayer {
   public id: string;
@@ -24,6 +32,7 @@ export class RemotePlayer {
   private currentState: PlayerStateUpdate | null = null;
   private lastUpdateTime = 0;
   private _isDead = false;
+  private physics: PhysicsWorld;
 
   /** Whether this player is currently dead (playing death animation). */
   get isDead(): boolean {
@@ -33,8 +42,8 @@ export class RemotePlayer {
   private ragdollActive = false;
   private attackLockoutUntil = 0;
   private currentWeaponType: WeaponType = 'pistol';
-  private weaponViewModel: WeaponViewModel;
-  private flashlight: THREE.SpotLight;
+  private weaponViewModel: WeaponViewModel | null = null;
+  private flashlight: THREE.SpotLight | null = null;
   private flashlightOn = false;
 
   // Smoothed position for even smoother rendering
@@ -45,61 +54,95 @@ export class RemotePlayer {
   /** When set, drives animation for custom GLB/VRM models (replaces procedural animatePlayerMovement) */
   private customAnimator: CustomPlayerAnimator | null = null;
 
-  constructor(id: string, username: string, scene: THREE.Scene, physics: PhysicsWorld) {
+  /** When true, use 2D sprite instead of 3D model (same as enemy sprite mode) */
+  private spriteMode = false;
+  private sprite: EnemySprite | null = null;
+  private getCameraPosition: GetCameraPosition | null = null;
+
+  constructor(
+    id: string,
+    username: string,
+    scene: THREE.Scene,
+    physics: PhysicsWorld,
+    getCameraPosition: GetCameraPosition | null = null
+  ) {
     this.id = id;
     this.username = username;
+    this.physics = physics;
+    this.getCameraPosition = getCameraPosition;
 
-    const customChar = getCachedAvatarModel();
-    if (customChar) {
-      const result = buildAnimatedPlayerFromCharacter(id, customChar);
-      this.model = result.model;
-      this.customAnimator = result.animator;
+    const cfg = ENEMY_RENDER_CONFIG;
+
+    if (cfg.mode === 'sprite') {
+      // 2D sprite mode: use EnemySprite; prefer custom avatar model (same logic as enemies + custom model)
+      this.spriteMode = true;
+      let spriteSource: THREE.Texture | typeof GUARD_VARIANTS.guard;
+      const cachedAvatar = getCachedAvatarModel();
+      if (cachedAvatar) {
+        spriteSource = bakeCustomModelSpriteSheet(cachedAvatar);
+      } else if (cfg.spriteSource === 'image' && cfg.spriteImageUrl) {
+        const tex = getPreloadedSpriteTexture();
+        spriteSource = tex ?? GUARD_VARIANTS.guard;
+      } else if (cfg.spriteSource === 'baked') {
+        spriteSource = bakeGuardSpriteSheet('guard', 'pistol');
+      } else {
+        spriteSource = GUARD_VARIANTS.guard;
+      }
+      this.sprite = new EnemySprite(spriteSource, 'pistol');
+      this.model = new THREE.Group();
+      this.model.add(this.sprite.mesh);
+      this.model.add(this.sprite.shadowMesh);
+      this.shadowMesh = this.sprite.shadowMesh;
+      scene.add(this.model);
     } else {
-      this.model = buildPlayerModel(id);
-      this.model.scale.setScalar(1.25);
+      // 3D model mode
+      const customChar = getCachedAvatarModel();
+      if (customChar) {
+        const result = buildAnimatedPlayerFromCharacter(id, customChar);
+        this.model = result.model;
+        this.customAnimator = result.animator;
+      } else {
+        this.model = buildPlayerModel(id);
+        this.model.scale.setScalar(1.25);
+      }
+      scene.add(this.model);
+
+      // Create blob shadow (scaled to match human-sized player)
+      const shadowGeometry = new THREE.CircleGeometry(0.38, 16);
+      const shadowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.3,
+      });
+      this.shadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
+      this.shadowMesh.rotation.x = -Math.PI / 2;
+      this.shadowMesh.position.y = 0.01;
+      scene.add(this.shadowMesh);
+
+      // Create weapon view model and attach weapon mesh
+      this.weaponViewModel = new WeaponViewModel();
+      if (this.customAnimator) {
+        setPlayerWeapon(this.model, null, 'pistol');
+      } else {
+        const weaponMesh = this.weaponViewModel.buildWeaponMeshForPreview('pistol', 'default');
+        setPlayerWeapon(this.model, weaponMesh);
+      }
+
+      // Create flashlight (spotlight attached to model - close to player, at chest/head height)
+      this.flashlight = new THREE.SpotLight(0xffe8cc, 0, 30, Math.PI / 6, 0.35, 1.5);
+      this.flashlight.position.set(0, 1.4, 0.15); // At chest height, slightly forward (weapon area)
+      this.flashlight.target.position.set(0, 1.2, -1.5); // Point forward (-Z in model space) for both procedural and custom models
+      this.model.add(this.flashlight);
+      this.model.add(this.flashlight.target);
     }
-    scene.add(this.model);
 
-    // Create blob shadow (scaled to match human-sized player)
-    const shadowGeometry = new THREE.CircleGeometry(0.38, 16);
-    const shadowMaterial = new THREE.MeshBasicMaterial({
-      color: 0x000000,
-      transparent: true,
-      opacity: 0.3,
-    });
-    this.shadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
-    this.shadowMesh.rotation.x = -Math.PI / 2;
-    this.shadowMesh.position.y = 0.01;
-    scene.add(this.shadowMesh);
-
-    // Create physics collider (kinematic capsule for hit detection)
+    // Create physics collider (kinematic capsule for hit detection) - used in both modes
     const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, 1, 0);
     this.rigidBody = physics.world.createRigidBody(bodyDesc);
-
     const colliderDesc = RAPIER.ColliderDesc.capsule(0.9, 0.3); // Standing capsule
     this.collider = physics.world.createCollider(colliderDesc, this.rigidBody);
-
-    // Store player ID in collider user data for identification
     this.collider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-
-    // Create interpolation buffer for smooth movement
     this.interpolationBuffer = new InterpolationBuffer(100); // 100ms delay
-
-    // Create weapon view model and attach weapon mesh
-    this.weaponViewModel = new WeaponViewModel();
-    if (this.customAnimator) {
-      setPlayerWeapon(this.model, null, 'pistol');
-    } else {
-      const weaponMesh = this.weaponViewModel.buildWeaponMeshForPreview('pistol', 'default');
-      setPlayerWeapon(this.model, weaponMesh);
-    }
-
-    // Create flashlight (spotlight attached to model - close to player, at chest/head height)
-    this.flashlight = new THREE.SpotLight(0xffe8cc, 0, 30, Math.PI / 6, 0.35, 1.5);
-    this.flashlight.position.set(0, 1.4, 0.15); // At chest height, slightly forward (weapon area)
-    this.flashlight.target.position.set(0, 1.2, 1.5); // Point forward, closer so beam stays near player
-    this.model.add(this.flashlight);
-    this.model.add(this.flashlight.target);
   }
 
   /**
@@ -121,7 +164,10 @@ export class RemotePlayer {
     if (this._isDead) {
       this.deathAnimationProgress += dt * 2; // 0.5 second animation
 
-      if (this.customAnimator) {
+      if (this.spriteMode && this.sprite) {
+        this.sprite.update(dt);
+        // Death holds last frame when animator finishes
+      } else if (this.customAnimator) {
         this.customAnimator.update(dt);
         if (!this.ragdollActive) {
           this.model.traverse((child) => {
@@ -195,54 +241,68 @@ export class RemotePlayer {
         true
       );
 
-      // Update visual model position using smoothed values
-      // Offset Y so feet touch ground. Capsule center is ~0.9m above feet.
-      // Procedural: feet ~0.3 from root, capsule ~1.0 → use -1.3
-      // Custom GLB/VRM: scaled to 1.7m, feet at scene origin → use -1.0 (less sink)
-      const yOffset = this.customAnimator ? 1.0 : 1.3;
+      // Update visual position
+      const yOffset = this.spriteMode ? 1.0 : (this.customAnimator ? 1.0 : 1.3);
       this.model.position.set(
         this.smoothedPosition.x,
         this.smoothedPosition.y - yOffset,
         this.smoothedPosition.z
       );
 
-      // Update rotation (yaw only, players rotate around Y axis)
-      // Procedural model faces +Z → add PI so it faces -Z (camera forward).
-      // Custom GLB/VRM typically face -Z already → no extra PI (adding it makes them appear backwards).
-      this.model.rotation.y = this.smoothedRotation + (this.customAnimator ? 0 : Math.PI);
-
-      // Update shadow position
-      this.shadowMesh.position.x = interpolatedState.position.x;
-      this.shadowMesh.position.z = interpolatedState.position.z;
-
-      // Animate movement: custom animator (idle/walk) or procedural (bob, arm swing)
-      if (this.customAnimator) {
-        this.customAnimator.update(dt);
-        if (performance.now() >= this.attackLockoutUntil) {
-          const animState = interpolatedState.isMoving ? 'walk' : 'idle';
-          this.customAnimator.play(animState);
-        }
-      } else {
-        animatePlayerMovement(this.model, renderTime * 0.001, interpolatedState.isMoving);
-        updateAimingPose(this.model);
+      // Update shadow position (3D mode only; sprite shadow is child of model)
+      if (!this.spriteMode) {
+        this.shadowMesh.position.x = interpolatedState.position.x;
+        this.shadowMesh.position.z = interpolatedState.position.z;
       }
 
-      // Update weapon if changed (normalize to canonical type for legacy/alternate names)
-      const raw = interpolatedState.currentWeapon as string;
-      const canonical: WeaponType =
-        raw === 'rifle' || raw === 'shotgun' || raw === 'sniper' ? raw :
-        raw === 'kf7-soviet' ? 'rifle' : raw === 'sniper-rifle' ? 'sniper' : 'pistol';
-      if (canonical !== this.currentWeaponType) {
-        this.currentWeaponType = canonical;
-        if (this.customAnimator) {
-          setPlayerWeapon(this.model, null, this.currentWeaponType);
+      if (this.spriteMode && this.sprite && this.getCameraPosition) {
+        // 2D sprite: billboard and animate
+        const cameraPos = this.getCameraPosition();
+        const playerPos = this.model.position.clone();
+        playerPos.y += 1.0; // Sprite center height
+        this.sprite.billboardToCamera(cameraPos, playerPos, 0);
+        this.sprite.update(dt);
+        // Play animation based on state
+        if (performance.now() < this.attackLockoutUntil) {
+          this.sprite.play('shoot');
+        } else if (this.sprite.animator.currentAnimation === 'hit' && !this.sprite.animator.finished) {
+          // Let hit play out
         } else {
-          const weaponMesh = this.weaponViewModel.buildWeaponMeshForPreview(this.currentWeaponType, 'default');
-          setPlayerWeapon(this.model, weaponMesh);
+          this.sprite.play(interpolatedState.isMoving ? 'walk' : 'idle');
+        }
+        // Weapon type affects procedural sprite frames; image sprites ignore
+        const raw = interpolatedState.currentWeapon as string;
+        this.currentWeaponType = raw === 'rifle' || raw === 'shotgun' || raw === 'sniper' ? raw : 'pistol';
+      } else {
+        // 3D model: rotation and animate
+        this.model.rotation.y = this.smoothedRotation + (this.customAnimator ? 0 : Math.PI);
+
+        if (this.customAnimator) {
+          this.customAnimator.update(dt);
+          if (performance.now() >= this.attackLockoutUntil) {
+            const animState = interpolatedState.isMoving ? 'walk' : 'idle';
+            this.customAnimator.play(animState);
+          }
+        } else {
+          animatePlayerMovement(this.model, renderTime * 0.001, interpolatedState.isMoving);
+          updateAimingPose(this.model);
+        }
+
+        // Update weapon if changed
+        const raw = interpolatedState.currentWeapon as string;
+        const canonical: WeaponType =
+          raw === 'rifle' || raw === 'shotgun' || raw === 'sniper' ? raw :
+          raw === 'kf7-soviet' ? 'rifle' : raw === 'sniper-rifle' ? 'sniper' : 'pistol';
+        if (canonical !== this.currentWeaponType && this.weaponViewModel) {
+          this.currentWeaponType = canonical;
+          if (this.customAnimator) {
+            setPlayerWeapon(this.model, null, this.currentWeaponType);
+          } else {
+            const weaponMesh = this.weaponViewModel.buildWeaponMeshForPreview(this.currentWeaponType, 'default');
+            setPlayerWeapon(this.model, weaponMesh);
+          }
         }
       }
-
-      // TODO: Show crouch animation if crouching
     }
   }
 
@@ -251,9 +311,29 @@ export class RemotePlayer {
    * Call when this player fires a weapon.
    */
   playFireAnimation(): void {
-    playFireAnimation(this.model);
     this.attackLockoutUntil = performance.now() + 300;
-    this.customAnimator?.play('attack');
+    if (this.spriteMode && this.sprite) {
+      this.sprite.play('shoot');
+    } else {
+      playFireAnimation(this.model);
+      this.customAnimator?.play('attack');
+    }
+  }
+
+  /**
+   * Play hit reaction animation when this player takes damage.
+   * For custom models: plays hit clip from hit.json. For procedural: brief flinch via userData.
+   * For sprites: triggerHitFlash + hit animation.
+   */
+  playHitAnimation(): void {
+    if (this.spriteMode && this.sprite) {
+      this.sprite.triggerHitFlash();
+      this.sprite.play('hit');
+    } else if (this.customAnimator) {
+      this.customAnimator.play('hit');
+    } else {
+      this.model.userData.hitFlinchUntil = performance.now() + 200;
+    }
   }
 
   /**
@@ -271,30 +351,33 @@ export class RemotePlayer {
   }
 
   /**
-   * Set flashlight state (on/off).
+   * Set flashlight state (on/off). No-op in sprite mode.
    */
   setFlashlight(isOn: boolean): void {
     this.flashlightOn = isOn;
-    this.flashlight.intensity = isOn ? 40 : 0;
+    if (this.flashlight) this.flashlight.intensity = isOn ? 40 : 0;
   }
 
   /**
    * Play death animation. Uses ragdoll for custom VRM models; otherwise death clip or procedural fall.
+   * For sprites: plays death animation.
    */
   playDeathAnimation(): void {
     this._isDead = true;
     this.deathAnimationProgress = 0;
     this.ragdollActive = false;
 
-    if (this.customAnimator && this.customAnimator.activateRagdoll) {
+    if (this.spriteMode && this.sprite) {
+      this.sprite.play('death');
+    } else if (this.customAnimator?.activateRagdoll) {
       const activated = this.customAnimator.activateRagdoll(this.physics, (pos, quat) => {
         this.model.position.copy(pos);
         this.model.quaternion.copy(quat);
       });
       if (activated) this.ragdollActive = true;
     }
-    if (!this.ragdollActive) {
-      this.customAnimator?.play('death');
+    if (!this.ragdollActive && this.customAnimator) {
+      this.customAnimator.play('death');
     }
   }
 
@@ -311,18 +394,19 @@ export class RemotePlayer {
     this.model.quaternion.identity();
     this.shadowMesh.visible = true;
 
-    this.customAnimator?.disposeRagdoll?.();
-    this.customAnimator?.resetMeshPosition?.();
-    this.customAnimator?.play('idle');
-
-    // Reset material opacity (death animation fades to 0)
-    this.model.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material instanceof THREE.Material) {
-        child.material.opacity = 1.0;
-        child.material.transparent = false;
-        child.material.needsUpdate = true;
-      }
-    });
+    if (this.spriteMode && this.sprite) {
+      this.sprite.play('idle');
+    } else {
+      if (this.customAnimator) this.customAnimator.resetForRespawn();
+      else delete this.model.userData.hitFlinchUntil;
+      this.model.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material instanceof THREE.Material) {
+          child.material.opacity = 1.0;
+          child.material.transparent = false;
+          child.material.needsUpdate = true;
+        }
+      });
+    }
   }
 
   /**
@@ -330,24 +414,21 @@ export class RemotePlayer {
    */
   dispose(scene: THREE.Scene, physics: PhysicsWorld): void {
     scene.remove(this.model);
-    scene.remove(this.shadowMesh);
+    if (!this.spriteMode) scene.remove(this.shadowMesh);
 
-    // Remove physics collider
     physics.world.removeCollider(this.collider, true);
 
-    // Dispose geometries and materials
-    this.model.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        if (child.material instanceof THREE.Material) {
-          child.material.dispose();
+    if (this.spriteMode && this.sprite) {
+      this.sprite.dispose();
+    } else {
+      this.model.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          if (child.material instanceof THREE.Material) child.material.dispose();
         }
-      }
-    });
-
-    this.shadowMesh.geometry.dispose();
-    if (this.shadowMesh.material instanceof THREE.Material) {
-      this.shadowMesh.material.dispose();
+      });
+      this.shadowMesh.geometry.dispose();
+      if (this.shadowMesh.material instanceof THREE.Material) this.shadowMesh.material.dispose();
     }
   }
 }

@@ -434,6 +434,24 @@ export function animatePlayerMovement(model: THREE.Group, time: number, isMoving
   // Order: 0=torso, 1=vest, 2=head, 3=leftEye, 4=rightEye, 5=leftArm, 6=rightArm, 7=leftUpperLeg, 8=rightUpperLeg
   const leftArm = hips.children[5];
   const rightArm = hips.children[6];
+
+  // Hit flinch: brief arm recoil when taking damage
+  const hitFlinchUntil = model.userData.hitFlinchUntil as number | undefined;
+  if (hitFlinchUntil != null && performance.now() < hitFlinchUntil) {
+    const flinchArm = 0.5; // Arms pull back (recoil)
+    if (leftArm) leftArm.rotation.x = flinchArm;
+    if (rightArm) rightArm.rotation.x = flinchArm;
+    const leftUpperLeg = hips.children[7] as THREE.Group;
+    const rightUpperLeg = hips.children[8] as THREE.Group;
+    const leftLowerLeg = leftUpperLeg?.children[1] as THREE.Group;
+    const rightLowerLeg = rightUpperLeg?.children[1] as THREE.Group;
+    if (leftUpperLeg) leftUpperLeg.rotation.x = 0;
+    if (rightUpperLeg) rightUpperLeg.rotation.x = 0;
+    if (leftLowerLeg) leftLowerLeg.rotation.x = 0;
+    if (rightLowerLeg) rightLowerLeg.rotation.x = 0;
+    hips.position.y = 0.9;
+    return;
+  }
   const leftUpperLeg = hips.children[7] as THREE.Group;
   const rightUpperLeg = hips.children[8] as THREE.Group;
 
@@ -535,6 +553,10 @@ export function updateAimingPose(model: THREE.Group): void {
 
   const leftArm = hips.children[5];
   const rightArm = hips.children[6];
+
+  // Hit flinch overrides aiming pose
+  const hitFlinchUntil = model.userData.hitFlinchUntil as number | undefined;
+  if (hitFlinchUntil != null && performance.now() < hitFlinchUntil) return;
 
   // Check if player fired recently (within last 500ms)
   const lastFireTime = model.userData.lastFireTime as number | undefined;

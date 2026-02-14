@@ -477,10 +477,12 @@ export class Game {
 
     // Initialize multiplayer components if in network mode
     if (this.networkMode === 'client' && this.networkManager) {
+      const cameraPos = new THREE.Vector3();
       this.remotePlayerManager = new RemotePlayerManager(
         this.scene,
         this.physics,
-        () => this.networkManager?.playerId ?? null
+        () => this.networkManager?.playerId ?? null,
+        () => this.fpsCamera.camera.getWorldPosition(cameraPos) || cameraPos
       );
       this.nameTagManager = new NameTagManager(this.fpsCamera.camera);
 
@@ -538,13 +540,16 @@ export class Game {
           playFleshImpact(); // Impact sound for remote player hit
         }
 
-        // Show blood splatter for remote player hits (3D on their model)
+        // Show blood splatter and hit animation for remote player hits
         if (!isLocalPlayer && this.remotePlayerManager) {
           const remotePlayer = this.remotePlayerManager.getPlayer(event.victimId);
-          if (remotePlayer?.model) {
-            const position = remotePlayer.getPosition();
-            const direction = new THREE.Vector3(0, 0, 1);
-            this.bloodSplatterSystem.spawnOnEnemy(remotePlayer.model, position, direction, 10);
+          if (remotePlayer) {
+            remotePlayer.playHitAnimation();
+            if (remotePlayer.model) {
+              const position = remotePlayer.getPosition();
+              const direction = new THREE.Vector3(0, 0, 1);
+              this.bloodSplatterSystem.spawnOnEnemy(remotePlayer.model, position, direction, 10);
+            }
           }
         }
       };
