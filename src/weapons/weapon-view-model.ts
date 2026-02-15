@@ -6,6 +6,7 @@ import {
 } from './muzzle-flash-sprite';
 import type { WeaponSkin } from './weapon-skins';
 import { buildWeaponMesh, type WeaponType } from './weapon-mesh-factory';
+import { updatePlasmaMaterial, isPlasmaMaterial } from './weapon-plasma-material';
 
 export type { WeaponType };
 
@@ -235,6 +236,20 @@ export class WeaponViewModel {
     this.weaponMesh.position.set(finalX, finalY, finalZ);
     this.weaponMesh.rotation.x = reloadTilt * 0.4;
     this.weaponMesh.rotation.z = reloadTilt * 0.12;
+
+    // Update plasma skin animation (time-based emissive flow)
+    if (this.currentSkin === 'plasma') {
+      const t = performance.now() * 0.001;
+      this.weaponMesh.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (mesh.material) {
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const mat of mats) {
+            if (isPlasmaMaterial(mat)) updatePlasmaMaterial(mat, t);
+          }
+        }
+      });
+    }
 
     // Hide weapon when fully scoped
     this.weaponMesh.visible = this.scopeTransition < 0.9;

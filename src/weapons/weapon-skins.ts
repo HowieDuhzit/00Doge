@@ -7,9 +7,42 @@ import {
   weaponWoodLightTexture,
   weaponWoodMidTexture,
   weaponWoodDarkTexture,
+  weaponMetalDarkWornTexture,
+  weaponMetalMidWornTexture,
+  weaponWoodLightWornTexture,
+  weaponWoodMidWornTexture,
+  weaponWoodDarkWornTexture,
+  weaponRoughnessMapMetal,
+  weaponMetalnessMapMetal,
+  weaponRoughnessMapWood,
+  weaponMetalnessMapWood,
 } from './weapon-textures';
 
-export type WeaponSkin = 'default' | 'gilded' | 'tiger' | 'flag';
+export type WeaponSkin = 'default' | 'gilded' | 'tiger' | 'flag' | 'battleworn' | 'plasma';
+
+export interface SkinTextureSet {
+  map: THREE.Texture;
+  roughnessMap?: THREE.Texture;
+  metalnessMap?: THREE.Texture;
+}
+
+/** UV repeat presets to prevent stretched/lined textures on weapon geometry. */
+export type WeaponPartUVScale =
+  | 'longMetal'     // Receiver, handguard, slide — tile along length
+  | 'cylinderMetal' // Barrel, mag tube — tile along cylinder length
+  | 'shortMetal'    // Small parts, rings
+  | 'longWood'      // Stock
+  | 'shortWood'     // Grip, pump
+  | 'grip'          // Rubber grip (square-ish)
+  | 'scope';        // Scope tube
+
+/** Apply UV repeat to a texture (clones so original is unchanged). */
+export function cloneTextureWithRepeat(tex: THREE.Texture, repeatX: number, repeatY: number): THREE.Texture {
+  const clone = tex.clone();
+  clone.wrapS = clone.wrapT = THREE.RepeatWrapping;
+  clone.repeat.set(repeatX, repeatY);
+  return clone;
+}
 
 const skinTextureCache = new Map<string, THREE.CanvasTexture>();
 
@@ -153,8 +186,97 @@ function flagWoodTexture(): THREE.CanvasTexture {
 
 export type SkinTextureRole = 'metal' | 'metalMid' | 'wood' | 'woodMid' | 'woodDark' | 'grip' | 'scope';
 
+/** Get full PBR texture set when skin supports it (map + roughness + metalness). */
+export function getTextureSetForSkin(skin: WeaponSkin, role: SkinTextureRole): SkinTextureSet {
+  if (skin === 'battleworn') {
+    switch (role) {
+      case 'metal':
+        return {
+          map: weaponMetalDarkWornTexture(),
+          roughnessMap: weaponRoughnessMapMetal(true),
+          metalnessMap: weaponMetalnessMapMetal(true),
+        };
+      case 'metalMid':
+        return {
+          map: weaponMetalMidWornTexture(),
+          roughnessMap: weaponRoughnessMapMetal(true),
+          metalnessMap: weaponMetalnessMapMetal(true),
+        };
+      case 'wood':
+        return { map: weaponWoodLightWornTexture(), roughnessMap: weaponRoughnessMapWood(), metalnessMap: weaponMetalnessMapWood() };
+      case 'woodMid':
+        return { map: weaponWoodMidWornTexture(), roughnessMap: weaponRoughnessMapWood(), metalnessMap: weaponMetalnessMapWood() };
+      case 'woodDark':
+        return { map: weaponWoodDarkWornTexture(), roughnessMap: weaponRoughnessMapWood(), metalnessMap: weaponMetalnessMapWood() };
+      case 'grip':
+        return { map: weaponGripTexture() };
+      case 'scope':
+        return { map: weaponMetalScopeTexture() };
+      default:
+        return { map: weaponMetalDarkWornTexture(), roughnessMap: weaponRoughnessMapMetal(true), metalnessMap: weaponMetalnessMapMetal(true) };
+    }
+  }
+  if (skin === 'default') {
+    let map: THREE.Texture;
+    let roughnessMap: THREE.Texture | undefined;
+    let metalnessMap: THREE.Texture | undefined;
+    switch (role) {
+      case 'metal':
+        map = weaponMetalDarkTexture();
+        roughnessMap = weaponRoughnessMapMetal();
+        metalnessMap = weaponMetalnessMapMetal();
+        break;
+      case 'metalMid':
+        map = weaponMetalMidTexture();
+        roughnessMap = weaponRoughnessMapMetal();
+        metalnessMap = weaponMetalnessMapMetal();
+        break;
+      case 'wood':
+      case 'woodMid':
+      case 'woodDark':
+        map = role === 'wood' ? weaponWoodLightTexture() : role === 'woodMid' ? weaponWoodMidTexture() : weaponWoodDarkTexture();
+        roughnessMap = weaponRoughnessMapWood();
+        metalnessMap = weaponMetalnessMapWood();
+        break;
+      case 'grip':
+      case 'scope':
+        map = role === 'grip' ? weaponGripTexture() : weaponMetalScopeTexture();
+        break;
+      default:
+        map = weaponMetalDarkTexture();
+    }
+    return { map, roughnessMap, metalnessMap };
+  }
+  // Plasma: dark metal base for metal parts (shader adds emissive); wood/grip stay standard
+  if (skin === 'plasma') {
+    if (role === 'metal' || role === 'metalMid' || role === 'scope') {
+      return { map: weaponMetalDarkTexture() };
+    }
+    if (role === 'wood' || role === 'woodMid' || role === 'woodDark') {
+      return { map: weaponWoodDarkTexture(), roughnessMap: weaponRoughnessMapWood(), metalnessMap: weaponMetalnessMapWood() };
+    }
+    return { map: weaponGripTexture() };
+  }
+  return { map: getTextureForSkin(skin, role) };
+}
+
 /** Get the texture for a given skin and material role (used by view model). */
 export function getTextureForSkin(skin: WeaponSkin, role: SkinTextureRole): THREE.CanvasTexture {
+  if (skin === 'battleworn') {
+    switch (role) {
+      case 'metal': return weaponMetalDarkWornTexture();
+      case 'metalMid': return weaponMetalMidWornTexture();
+      case 'wood': return weaponWoodLightWornTexture();
+      case 'woodMid': return weaponWoodMidWornTexture();
+      case 'woodDark': return weaponWoodDarkWornTexture();
+      case 'grip': return weaponGripTexture();
+      case 'scope': return weaponMetalScopeTexture();
+      default: return weaponMetalDarkWornTexture();
+    }
+  }
+  if (skin === 'plasma') {
+    return weaponMetalDarkTexture();
+  }
   if (skin === 'default') {
     switch (role) {
       case 'metal': return weaponMetalDarkTexture();
@@ -216,9 +338,11 @@ export const WEAPON_SKIN_LABELS: Record<WeaponSkin, string> = {
   gilded: 'Gilded Gold',
   tiger: 'Orange Tiger',
   flag: 'Red White Blue',
+  battleworn: 'Battle Worn',
+  plasma: 'Plasma Accent',
 };
 
-export const WEAPON_SKIN_LIST: WeaponSkin[] = ['default', 'gilded', 'tiger', 'flag'];
+export const WEAPON_SKIN_LIST: WeaponSkin[] = ['default', 'gilded', 'tiger', 'flag', 'battleworn', 'plasma'];
 
 const previewCache = new Map<WeaponSkin, string>();
 
@@ -295,6 +419,26 @@ export function getSkinPreviewDataUrl(skin: WeaponSkin): string {
     ctx.fillRect(leftW, sh, rightW, sh);
     ctx.fillStyle = '#2a2960';
     ctx.fillRect(leftW, sh * 2, rightW, sh);
+  } else if (skin === 'battleworn') {
+    ctx.fillStyle = '#1a1c20';
+    ctx.fillRect(0, 0, leftW, h);
+    ctx.fillStyle = 'rgba(60,62,70,0.35)';
+    ctx.fillRect(0, 0, leftW, 1);
+    ctx.fillStyle = '#4a3520';
+    ctx.fillRect(leftW, 0, rightW, h);
+    ctx.strokeStyle = 'rgba(40,30,15,0.5)';
+    for (let y = 3; y < h; y += 5) ctx.fillRect(leftW, y, rightW, 1);
+  } else if (skin === 'plasma') {
+    ctx.fillStyle = '#0c1014';
+    ctx.fillRect(0, 0, leftW, h);
+    const plasmaGrad = ctx.createLinearGradient(0, 0, leftW, 0);
+    plasmaGrad.addColorStop(0, 'rgba(0,200,255,0.15)');
+    plasmaGrad.addColorStop(0.5, 'rgba(170,0,255,0.25)');
+    plasmaGrad.addColorStop(1, 'rgba(0,200,255,0.15)');
+    ctx.fillStyle = plasmaGrad;
+    ctx.fillRect(0, h / 4, leftW, h / 2);
+    ctx.fillStyle = '#1a1520';
+    ctx.fillRect(leftW, 0, rightW, h);
   } else {
     ctx.fillStyle = '#252528';
     ctx.fillRect(0, 0, w, h);

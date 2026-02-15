@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { WeaponType } from './weapon-view-model';
 import type { WeaponSkin } from './weapon-skins';
+import { updatePlasmaMaterial, isPlasmaMaterial } from './weapon-plasma-material';
 
 export const PREVIEW_W = 240;
 export const PREVIEW_H = 120;
@@ -130,6 +131,18 @@ export function renderWeaponPreviewToCanvas(
   }
 
   group.rotation.y = rotationY;
+  if (_skin === 'plasma') {
+    const t = performance.now() * 0.001;
+    group.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.material) {
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mat of mats) {
+          if (isPlasmaMaterial(mat)) updatePlasmaMaterial(mat, t);
+        }
+      }
+    });
+  }
   scene.add(group);
   group.updateMatrixWorld(true);
   const box = computeGroupBox(group);

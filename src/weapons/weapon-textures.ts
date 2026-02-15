@@ -1,6 +1,16 @@
 import * as THREE from 'three';
 
-const cache = new Map<string, THREE.CanvasTexture>();
+const cache = new Map<string, THREE.CanvasTexture | THREE.DataTexture>();
+
+/** Seeded random for reproducible wear patterns (Mulberry32) */
+function seededRandom(seed: number): () => number {
+  return () => {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0; // mulberry32
+    const t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    return ((t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ 0) / 4294967296;
+  };
+}
 
 function getOrCreate(
   key: string,
@@ -39,6 +49,85 @@ function addNoise(ctx: CanvasRenderingContext2D, w: number, h: number, strength:
     d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
   }
   ctx.putImageData(id, 0, 0);
+}
+
+/** Grayscale DataTexture for roughness/metalness (64x64, perf-friendly) */
+const pbrMapCache = new Map<string, THREE.DataTexture>();
+
+function getOrCreatePBRMap(
+  key: string,
+  width: number,
+  height: number,
+  fill: (data: Uint8Array, w: number, h: number) => void,
+): THREE.DataTexture {
+  const cached = pbrMapCache.get(key);
+  if (cached) return cached;
+  const data = new Uint8Array(width * height);
+  fill(data, width, height);
+  const tex = new THREE.DataTexture(data, width, height, THREE.RedFormat);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  pbrMapCache.set(key, tex);
+  return tex;
+}
+
+/** Apply wear layer (edge darkening, scratches) to an existing canvas context. */
+function applyWearLayer(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  amount: number,
+  seed: number,
+): void {
+  const rnd = seededRandom(seed);
+  ctx.globalCompositeOperation = 'multiply';
+
+  // Edge wear — darkened borders (high-contact areas)
+  const edgeGrad = ctx.createLinearGradient(0, 0, w, h);
+  edgeGrad.addColorStop(0, `rgba(80,80,90,${0.15 * amount})`);
+  edgeGrad.addColorStop(0.2, 'rgba(255,255,255,0)');
+  edgeGrad.addColorStop(0.8, 'rgba(255,255,255,0)');
+  edgeGrad.addColorStop(1, `rgba(60,60,70,${0.2 * amount})`);
+  ctx.fillStyle = edgeGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  const edgeGradV = ctx.createLinearGradient(0, 0, 0, h);
+  edgeGradV.addColorStop(0, `rgba(70,70,80,${0.2 * amount})`);
+  edgeGradV.addColorStop(0.15, 'rgba(255,255,255,0)');
+  edgeGradV.addColorStop(0.85, 'rgba(255,255,255,0)');
+  edgeGradV.addColorStop(1, `rgba(50,50,60,${0.25 * amount})`);
+  ctx.fillStyle = edgeGradV;
+  ctx.fillRect(0, 0, w, h);
+
+  // Scratches — diagonal fine lines (reduced reflectivity)
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.strokeStyle = `rgba(30,32,38,${0.4 * amount})`;
+  ctx.lineWidth = 0.8;
+  for (let i = 0; i < 18; i++) {
+    const sx = rnd() * w;
+    const sy = rnd() * h;
+    const len = 12 + rnd() * 28;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + len, sy + (rnd() - 0.5) * 4);
+    ctx.stroke();
+  }
+
+  // Micro rust spots (subtle brown dots)
+  for (let i = 0; i < 6; i++) {
+    const x = rnd() * (w - 4);
+    const y = rnd() * (h - 4);
+    const s = 1 + rnd() * 2;
+    ctx.fillStyle = `rgba(90,60,40,${0.25 * amount})`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, s, s * 0.7, rnd() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
 }
 
 /** Dark gunmetal — pistol/rifle receiver, barrel */
@@ -83,6 +172,14 @@ export function weaponMetalDarkTexture(): THREE.CanvasTexture {
   });
 }
 
+/** Dark gunmetal with wear and tear */
+export function weaponMetalDarkWornTexture(): THREE.CanvasTexture {
+  return getOrCreate('weapon-metal-dark-worn', 64, 64, (ctx) => {
+    ctx.drawImage((weaponMetalDarkTexture() as THREE.CanvasTexture).image, 0, 0);
+    applyWearLayer(ctx, 64, 64, 0.85, 42);
+  }) as THREE.CanvasTexture;
+}
+
 /** Slightly lighter metal — rifle body */
 export function weaponMetalMidTexture(): THREE.CanvasTexture {
   return getOrCreate('weapon-metal-mid', 64, 64, (ctx) => {
@@ -124,6 +221,14 @@ export function weaponMetalMidTexture(): THREE.CanvasTexture {
     ctx.fillRect(0, 63, 64, 1);
     addNoise(ctx, 64, 64, 12);
   });
+}
+
+/** Rifle metal with wear */
+export function weaponMetalMidWornTexture(): THREE.CanvasTexture {
+  return getOrCreate('weapon-metal-mid-worn', 64, 64, (ctx) => {
+    ctx.drawImage((weaponMetalMidTexture() as THREE.CanvasTexture).image, 0, 0);
+    applyWearLayer(ctx, 64, 64, 0.8, 137);
+  }) as THREE.CanvasTexture;
 }
 
 /** Very dark — scope tube, bolt */
@@ -222,6 +327,14 @@ export function weaponWoodLightTexture(): THREE.CanvasTexture {
   });
 }
 
+/** Wood light with wear (chipped varnish, darker grain) */
+export function weaponWoodLightWornTexture(): THREE.CanvasTexture {
+  return getOrCreate('weapon-wood-light-worn', 64, 64, (ctx) => {
+    ctx.drawImage((weaponWoodLightTexture() as THREE.CanvasTexture).image, 0, 0);
+    applyWearLayer(ctx, 64, 64, 0.6, 219);
+  }) as THREE.CanvasTexture;
+}
+
 /** Wood — shotgun (reddish brown) */
 export function weaponWoodMidTexture(): THREE.CanvasTexture {
   return getOrCreate('weapon-wood-mid', 64, 64, (ctx) => {
@@ -254,6 +367,14 @@ export function weaponWoodMidTexture(): THREE.CanvasTexture {
     ctx.fillRect(0, 30, 64, 5);
     addNoise(ctx, 64, 64, 16);
   });
+}
+
+/** Wood mid with wear */
+export function weaponWoodMidWornTexture(): THREE.CanvasTexture {
+  return getOrCreate('weapon-wood-mid-worn', 64, 64, (ctx) => {
+    ctx.drawImage((weaponWoodMidTexture() as THREE.CanvasTexture).image, 0, 0);
+    applyWearLayer(ctx, 64, 64, 0.55, 311);
+  }) as THREE.CanvasTexture;
 }
 
 /** Wood — sniper (darker walnut) */
@@ -294,6 +415,62 @@ export function weaponWoodDarkTexture(): THREE.CanvasTexture {
     ctx.fillStyle = 'rgba(80,55,30,0.1)';
     ctx.fillRect(0, 25, 64, 8);
     addNoise(ctx, 64, 64, 14);
+  });
+}
+
+/** Wood dark with wear */
+export function weaponWoodDarkWornTexture(): THREE.CanvasTexture {
+  return getOrCreate('weapon-wood-dark-worn', 64, 64, (ctx) => {
+    ctx.drawImage((weaponWoodDarkTexture() as THREE.CanvasTexture).image, 0, 0);
+    applyWearLayer(ctx, 64, 64, 0.5, 447);
+  }) as THREE.CanvasTexture;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PBR MAPS (roughness / metalness for realistic shading)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Roughness map for metal — scratches and wear = rougher */
+export function weaponRoughnessMapMetal(worn = false): THREE.DataTexture {
+  const key = worn ? 'pbr-roughness-metal-worn' : 'pbr-roughness-metal';
+  return getOrCreatePBRMap(key, 64, 64, (data, w, h) => {
+    const rnd = seededRandom(worn ? 53 : 7);
+    for (let i = 0; i < w * h; i++) {
+      let v = worn ? 55 + rnd() * 50 : 40 + rnd() * 35; // Base roughness
+      if (rnd() < (worn ? 0.15 : 0.06)) v += 80 + rnd() * 60; // Scratch
+      data[i] = Math.min(255, Math.floor(v));
+    }
+  });
+}
+
+/** Metalness map for metal — polished = high */
+export function weaponMetalnessMapMetal(worn = false): THREE.DataTexture {
+  const key = worn ? 'pbr-metalness-metal-worn' : 'pbr-metalness-metal';
+  return getOrCreatePBRMap(key, 64, 64, (data, w, h) => {
+    const rnd = seededRandom(worn ? 71 : 13);
+    for (let i = 0; i < w * h; i++) {
+      let v = 220 + rnd() * 35; // High metalness
+      if (rnd() < (worn ? 0.12 : 0.04)) v -= 60 + rnd() * 80; // Scratched area
+      data[i] = Math.max(0, Math.min(255, Math.floor(v)));
+    }
+  });
+}
+
+/** Roughness for wood (moderate, varnish sheen) */
+export function weaponRoughnessMapWood(): THREE.DataTexture {
+  return getOrCreatePBRMap('pbr-roughness-wood', 64, 64, (data, w, h) => {
+    const rnd = seededRandom(29);
+    for (let i = 0; i < w * h; i++) {
+      const v = 120 + rnd() * 80;
+      data[i] = Math.min(255, Math.floor(v));
+    }
+  });
+}
+
+/** Metalness for wood (low — dielectric) */
+export function weaponMetalnessMapWood(): THREE.DataTexture {
+  return getOrCreatePBRMap('pbr-metalness-wood', 64, 64, (data) => {
+    for (let i = 0; i < data.length; i++) data[i] = 15;
   });
 }
 
