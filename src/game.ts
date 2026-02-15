@@ -73,9 +73,7 @@ export interface GameOptions {
   networkMode?: 'local' | 'client';
   networkManager?: NetworkManager;
   /** Multiplayer map to load. Default: 'crossfire'. */
-  mapId?: 'crossfire' | 'wasteland' | 'dust';
-  /** Pre-loaded level schema (for Dust District multiplayer). When set, used instead of createMultiplayerArena. */
-  levelSchema?: LevelSchema;
+  mapId?: 'crossfire' | 'wasteland';
 }
 
 export class Game {
@@ -487,9 +485,7 @@ export class Game {
       this.triggerSystem = new TriggerSystem(() => this.player.getPosition());
       this.triggerSystem.onTrigger = (event) => this.handleTrigger(event);
       this.objectiveSystem = new ObjectiveSystem();
-      const mpMapId = options.mapId ?? 'crossfire';
-      const mpLevel = options.levelSchema ?? createMultiplayerArena(mpMapId === 'dust' ? 'crossfire' : mpMapId);
-      this.loadLevel(mpLevel);
+      this.loadLevel(createMultiplayerArena(options.mapId ?? 'crossfire'));
     } else {
       this.buildTestScene();
       this.spawnTestEnemies();
@@ -855,7 +851,7 @@ export class Game {
   /**
    * Apply destroyed destructibles from server (for new joiners + sync).
    */
-  private syncDestroyedDestructibles(destroyed?: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' | 'vehicle_car' | 'vehicle_truck' }>): void {
+  private syncDestroyedDestructibles(destroyed?: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' }>): void {
     if (!destroyed) return;
     for (const d of destroyed) {
       if (this.processedDestructibleIds.has(d.propId)) continue;

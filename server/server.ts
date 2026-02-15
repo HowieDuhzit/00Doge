@@ -48,14 +48,8 @@ class GameServer {
       console.log(`[Server] Client connected: ${socket.id}`);
 
       // Player connected event
-      socket.on('player:connected', (data: { playerId: string; username: string; mapId?: string }) => {
-        const mapId = (data.mapId === 'dust' || data.mapId === 'wasteland' || data.mapId === 'crossfire')
-          ? data.mapId
-          : 'crossfire';
-        this.gameRoom.addPlayer(socket.id, data.username, mapId);
-
-        // Tell the connecting client which map the room is on (so they load the correct level)
-        socket.emit('room:joined', { roomMapId: this.gameRoom.getRoomMapId() });
+      socket.on('player:connected', (data: { playerId: string; username: string }) => {
+        this.gameRoom.addPlayer(socket.id, data.username);
 
         // Broadcast to all clients that a new player joined
         this.io.emit('player:connected', {

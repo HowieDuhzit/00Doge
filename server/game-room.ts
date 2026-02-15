@@ -12,14 +12,7 @@ import type {
   DestructibleDestroyedEvent,
   GameOverEvent,
 } from '../src/network/network-events.js';
-import { getMultiplayerArenaSpawnPoints, getDustDistrictSpawnPoints } from '../src/levels/multiplayer-arena.js';
-
-export type RoomMapId = 'crossfire' | 'wasteland' | 'dust';
-
-function getSpawnPointsForMap(mapId: RoomMapId) {
-  if (mapId === 'dust') return getDustDistrictSpawnPoints();
-  return getMultiplayerArenaSpawnPoints();
-}
+import { getMultiplayerArenaSpawnPoints } from '../src/levels/multiplayer-arena.js';
 
 /**
  * GameRoom manages a single multiplayer session/match.
@@ -47,11 +40,8 @@ export class GameRoom {
   private readonly HEADSHOT_MULTIPLIER = 2;
 
   // Destructible sync: track all destroyed props for new joiners
-  private destroyedDestructibles: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' | 'vehicle_car' | 'vehicle_truck' }> = [];
+  private destroyedDestructibles: Array<{ propId: string; position: { x: number; y: number; z: number }; type: 'crate' | 'crate_metal' | 'barrel' }> = [];
   private destroyedPropIds = new Set<string>();
-
-  // Map-specific: room uses first joiner's map when empty
-  private roomMapId: RoomMapId = 'crossfire';
 
   // Gas damage rate limit: ignore if same player sent < 100ms ago
   private lastGasDamageTime: Map<string, number> = new Map();
@@ -59,8 +49,11 @@ export class GameRoom {
   // Enemy damage rate limit: ignore if same player sent < 150ms ago
   private lastEnemyDamageTime: Map<string, number> = new Map();
 
-  /** Spawn points for players (map-specific, updated when roomMapId changes). */
-  private spawnPoints = getMultiplayerArenaSpawnPoints();
+  /**
+   * Spawn points for players (random selection).
+   * TODO: Load from level data.
+   */
+  private readonly spawnPoints = getMultiplayerArenaSpawnPoints();
 
   /**
    * Callback for broadcasting game state to all clients.
@@ -75,22 +68,11 @@ export class GameRoom {
 
   /**
    * Add a player to the room.
-   * When room is empty, mapId sets the room's map and spawn points.
    */
-  addPlayer(id: string, username: string, mapId?: RoomMapId): void {
-    if (this.players.size === 0 && mapId) {
-      this.roomMapId = mapId;
-      this.spawnPoints = getSpawnPointsForMap(mapId);
-      console.log(`[GameRoom] Room map set to: ${mapId}`);
-    }
+  addPlayer(id: string, username: string): void {
     const playerState = createPlayerState(id, username);
     this.players.set(id, playerState);
     console.log(`[GameRoom] Player ${username} (${id}) joined. Total players: ${this.players.size}`);
-  }
-
-  /** Get the room's current map (for room:joined event). */
-  getRoomMapId(): RoomMapId {
-    return this.roomMapId;
   }
 
   /**
@@ -683,19 +665,18 @@ export class GameRoom {
     // Broadcast destruction to all clients
     this.onBroadcast?.('destructible:destroyed', event);
 
-    // If barrel or vehicle, trigger explosion damage to players
-    const isExplosive = event.type === 'barrel' || event.type === 'vehicle_car' || event.type === 'vehicle_truck';
-    if (isExplosive) {
-      const explosionRadius = event.type === 'barrel' ? 3 : 4;
-      const explosionDamage = event.type === 'barrel' ? 50 : 60;
+    // If barrel, trigger explosion damage to players
+    if (event.type === 'barrel') {
+      const barrelExplosionRadius = 3;
+      const barrelExplosionDamage = 50;
 
       this.players.forEach((victim, victimId) => {
         if (victim.health <= 0) return;
 
         const distance = this.calculateDistance(event.position, victim.position);
-        if (distance <= explosionRadius) {
-          const falloff = 1 - distance / explosionRadius;
-          const damage = explosionDamage * falloff;
+        if (distance <= barrelExplosionRadius) {
+          const falloff = 1 - distance / barrelExplosionRadius;
+          const damage = barrelExplosionDamage * falloff;
 
           this.applyDamage(victim, damage);
 
@@ -718,7 +699,7 @@ export class GameRoom {
               timestamp: Date.now(),
             };
             this.onBroadcast?.('player:died', deathEvent);
-            console.log(`[GameRoom] Player ${victim.username} killed by ${event.type} explosion`);
+            console.log(`[GameRoom] Player ${victim.username} killed by barrel explosion`);
             this.scheduleRespawn(victimId);
           }
         }

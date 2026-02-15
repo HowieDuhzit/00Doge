@@ -30,7 +30,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-export type MultiplayerMapId = 'crossfire' | 'wasteland' | 'dust';
+export type MultiplayerMapId = 'crossfire' | 'wasteland';
 
 const CROSSFIRE_ROOM_COLORS = {
   spawn: { floor: 0xf0e5d2, wall: 0xe9ddc6 },
@@ -268,30 +268,12 @@ export function getMultiplayerArenaDefaultSpawnPoint(): SpawnDef {
   return { ...first };
 }
 
-/** Dust District spawn points (from dust-district.json layout). */
-export function getDustDistrictSpawnPoints(): SpawnDef[] {
-  return [
-    { x: -28, y: 0.5, z: 0 },
-    { x: -26, y: 0.5, z: -4 },
-    { x: -26, y: 0.5, z: 4 },
-    { x: 28, y: 0.5, z: 0 },
-    { x: 26, y: 0.5, z: -4 },
-    { x: 26, y: 0.5, z: 4 },
-    { x: 0, y: 0.5, z: -6 },
-    { x: 0, y: 0.5, z: 6 },
-    { x: -15, y: 0.5, z: 30 },
-    { x: 12, y: 0.5, z: 35 },
-    { x: 20, y: 0.5, z: 40 },
-  ];
-}
-
 export const MULTIPLAYER_MAPS: { id: MultiplayerMapId; name: string; description: string }[] = [
   { id: 'crossfire', name: 'Crossfire Complex', description: 'Palace-style arena' },
   { id: 'wasteland', name: 'Wasteland Depot', description: 'Industrial wasteland arena' },
-  { id: 'dust', name: 'Dust District', description: 'Desert outdoor map with vehicles' },
 ];
 
-const MAP_META: Record<Exclude<MultiplayerMapId, 'dust'>, { name: string; theme: 'palace' | 'wasteland'; briefing: string }> = {
+const MAP_META: Record<MultiplayerMapId, { name: string; theme: 'palace' | 'wasteland'; briefing: string }> = {
   crossfire: {
     name: 'Crossfire Complex',
     theme: 'palace',
@@ -307,7 +289,7 @@ const MAP_META: Record<Exclude<MultiplayerMapId, 'dust'>, { name: string; theme:
 };
 
 export function createMultiplayerArena(
-  mapId: Exclude<MultiplayerMapId, 'dust'> = 'crossfire',
+  mapId: MultiplayerMapId = 'crossfire',
   config: Partial<ArenaLayoutConfig> = {},
 ): LevelSchema {
   const finalConfig: ArenaLayoutConfig = {
