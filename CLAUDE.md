@@ -111,6 +111,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Procedural Textures
 
 - **Pattern**: `src/levels/procedural-textures.ts` — Canvas 2D → THREE.CanvasTexture → cached in module-level Map
+- **Normal maps**: Derived in `src/levels/procedural-textures.ts` and consumed by materials in `src/levels/level-builder.ts`
+- **Policy source**: `docs/NORMAL_MAPPING_STANDARDS.md`
 - Textures: concrete walls, floor tiles, ceiling panels, wood crates, metal crates, barrels, weapon skins
 - Settings: NearestFilter (pixel-art look), RepeatWrapping (tiling), clone for independent UV offsets
 - All textures generated at runtime (no image assets)
@@ -212,8 +214,9 @@ scripts/
 1. Create weapon class in `src/weapons/weapons/` extending `WeaponBase`
 2. Define stats: damage, fireRate, maxAmmo, spread, range, automatic, raysPerShot
 3. Add texture generator in `src/weapons/weapon-textures.ts`
-4. Register in `WeaponManager` constructor
-5. **Multiplayer**: Update weapon damage/range/fire-rate in `server/game-room.ts` to match
+4. Add/assign weapon normal maps for view/world/preview materials per `docs/NORMAL_MAPPING_STANDARDS.md`
+5. Register in `WeaponManager` constructor
+6. **Multiplayer**: Update weapon damage/range/fire-rate in `server/game-room.ts` to match
 
 ### Adding a New Enemy Type
 
@@ -261,6 +264,7 @@ scripts/
 
 - **Rapier collider comparison**: Use handle comparison only
 - **Procedural textures**: Cache in module-level Map to avoid recreating on every call
+- **Normal mapping coverage**: All new/reworked weapons, level surfaces, and props must include normal maps or document an exception in `docs/NORMAL_MAPPING_STANDARDS.md`
 - **Billboard sprites**: Never set Y-rotation on enemy group mesh (billboard handles facing)
 - **Weapon fire timing**: Use `performance.now()` for precise fire rate timing (not `dt` accumulation)
 - **Fixed-step physics**: Always update physics in while-loop with PHYSICS_STEP constant (1/60)

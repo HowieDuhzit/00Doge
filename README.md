@@ -37,6 +37,7 @@ See **[DEPLOYMENT_QUICKSTART.md](./DEPLOYMENT_QUICKSTART.md)** for deploying to 
 - **[CLAUDE.md](./CLAUDE.md)** - Architecture guide for AI assistants
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Full deployment guide
 - **[DEPLOYMENT_QUICKSTART.md](./DEPLOYMENT_QUICKSTART.md)** - Quick Coolify setup
+- **[NORMAL_MAPPING_STANDARDS.md](./docs/NORMAL_MAPPING_STANDARDS.md)** - Required normal-mapping policy for textures, levels, and weapons
 
 ## 🐳 Docker
 

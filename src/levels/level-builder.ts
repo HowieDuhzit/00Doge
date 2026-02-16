@@ -11,18 +11,30 @@ import { PickupSystem } from '../levels/pickup-system';
 import { DestructibleSystem } from './destructible-system';
 import {
   concreteWallTexture,
+  concreteWallNormalTexture,
   floorTileTexture,
+  floorTileNormalTexture,
   ceilingPanelTexture,
+  ceilingPanelNormalTexture,
   palaceWallTexture,
+  palaceWallNormalTexture,
   palaceMarbleFloorTexture,
+  palaceMarbleFloorNormalTexture,
   palaceCeilingTexture,
+  palaceCeilingNormalTexture,
   palacePaintingTexture,
   wastelandWallTexture,
+  wastelandWallNormalTexture,
   wastelandFloorTexture,
+  wastelandFloorNormalTexture,
   wastelandCeilingTexture,
+  wastelandCeilingNormalTexture,
   woodCrateTexture,
+  woodCrateNormalTexture,
   metalCrateTexture,
+  metalCrateNormalTexture,
   barrelTexture,
+  barrelNormalTexture,
   snowGroundTexture,
   mountainWallTexture,
 } from './procedural-textures';
@@ -72,23 +84,23 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
   const isPalace = level.theme === 'palace';
   const isWasteland = level.theme === 'wasteland';
 
-  const ambientColor = hasOutdoor ? 0xaaccdd : isWasteland ? 0xc4a882 : 0x8899aa;
-  const ambientIntensity = hasOutdoor ? 2.2 : isWasteland ? 1.6 : 1.8;
+  const ambientColor = hasOutdoor ? 0xaaccdd : isWasteland ? 0x7ea4ad : 0x8899aa;
+  const ambientIntensity = hasOutdoor ? 2.2 : isWasteland ? 1.45 : 1.8;
   const ambient = new THREE.AmbientLight(ambientColor, ambientIntensity);
   scene.add(ambient);
 
-  const hemiSky = hasOutdoor ? 0xeef5ff : isWasteland ? 0xeed8bb : 0xddeeff;
-  const hemiGround = hasOutdoor ? 0xccdddd : isWasteland ? 0x554433 : 0x445544;
-  const hemiIntensity = hasOutdoor ? 1.1 : isWasteland ? 0.85 : 0.9;
+  const hemiSky = hasOutdoor ? 0xeef5ff : isWasteland ? 0xb8e4eb : 0xddeeff;
+  const hemiGround = hasOutdoor ? 0xccdddd : isWasteland ? 0x1f2623 : 0x445544;
+  const hemiIntensity = hasOutdoor ? 1.1 : isWasteland ? 0.95 : 0.9;
   const hemi = new THREE.HemisphereLight(hemiSky, hemiGround, hemiIntensity);
   scene.add(hemi);
 
   for (const room of level.rooms) {
     const [lx, ly, lz] = [room.x, room.y + 1.5, room.z];
     const pointLight = new THREE.PointLight(
-      room.outdoor ? 0xeeddcc : isWasteland ? 0xccffaa : isPalace ? 0xffefcc : 0xffeedd,
-      room.outdoor ? 120 : isWasteland ? 85 : isPalace ? 95 : 80,
-      isWasteland ? 22 : 25,
+      room.outdoor ? 0xeeddcc : isWasteland ? 0x8fe6d3 : isPalace ? 0xffefcc : 0xffeedd,
+      room.outdoor ? 120 : isWasteland ? 94 : isPalace ? 95 : 80,
+      isWasteland ? 24 : 25,
     );
     pointLight.position.set(lx, ly, lz);
     pointLight.castShadow = true;
@@ -98,8 +110,11 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
 
   // Materials — procedural textures
   const floorTex = isWasteland ? wastelandFloorTexture() : isPalace ? palaceMarbleFloorTexture() : floorTileTexture();
+  const floorNormalTex = isWasteland ? wastelandFloorNormalTexture() : isPalace ? palaceMarbleFloorNormalTexture() : floorTileNormalTexture();
   const wallTex = isWasteland ? wastelandWallTexture() : isPalace ? palaceWallTexture() : concreteWallTexture();
+  const wallNormalTex = isWasteland ? wastelandWallNormalTexture() : isPalace ? palaceWallNormalTexture() : concreteWallNormalTexture();
   const ceilTex = isWasteland ? wastelandCeilingTexture() : isPalace ? palaceCeilingTexture() : ceilingPanelTexture();
+  const ceilNormalTex = isWasteland ? wastelandCeilingNormalTexture() : isPalace ? palaceCeilingNormalTexture() : ceilingPanelNormalTexture();
   const snowTex = snowGroundTexture();
   const mountainTex = mountainWallTexture();
 
@@ -112,10 +127,23 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
     );
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    const roughness = useSnow ? 0.9 : isWasteland ? 0.75 : isPalace ? 0.26 : 0.8;
-    const metalness = useSnow ? 0.05 : isWasteland ? 0.12 : isPalace ? 0.05 : 0.2;
+    const normalTex = useSnow ? null : floorNormalTex.clone();
+    if (normalTex) {
+      normalTex.needsUpdate = true;
+      normalTex.repeat.set(
+        repeatForSize(width, FLOOR_TILE_SIZE),
+        repeatForSize(depth, FLOOR_TILE_SIZE),
+      );
+      normalTex.wrapS = THREE.RepeatWrapping;
+      normalTex.wrapT = THREE.RepeatWrapping;
+    }
+    const roughness = useSnow ? 0.9 : isWasteland ? 0.64 : isPalace ? 0.26 : 0.8;
+    const metalness = useSnow ? 0.05 : isWasteland ? 0.22 : isPalace ? 0.05 : 0.2;
+    const floorNormalStrength = isWasteland ? 1.25 : isPalace ? 0.65 : 0.95;
     return new THREE.MeshStandardMaterial({
       map: tex,
+      normalMap: normalTex ?? undefined,
+      normalScale: normalTex ? new THREE.Vector2(floorNormalStrength, floorNormalStrength) : undefined,
       color,
       roughness,
       metalness,
@@ -130,10 +158,23 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
     );
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    const roughness = useMountain ? 0.85 : isWasteland ? 0.75 : isPalace ? 0.46 : 0.7;
-    const metalness = useMountain ? 0.05 : isWasteland ? 0.12 : isPalace ? 0.08 : 0.1;
+    const normalTex = useMountain ? null : wallNormalTex.clone();
+    if (normalTex) {
+      normalTex.needsUpdate = true;
+      normalTex.repeat.set(
+        repeatForSize(span, WALL_TILE_WIDTH),
+        repeatForSize(wallHeight, WALL_TILE_HEIGHT),
+      );
+      normalTex.wrapS = THREE.RepeatWrapping;
+      normalTex.wrapT = THREE.RepeatWrapping;
+    }
+    const roughness = useMountain ? 0.85 : isWasteland ? 0.68 : isPalace ? 0.46 : 0.7;
+    const metalness = useMountain ? 0.05 : isWasteland ? 0.2 : isPalace ? 0.08 : 0.1;
+    const wallNormalStrength = isWasteland ? 1.15 : isPalace ? 0.55 : 0.85;
     return new THREE.MeshStandardMaterial({
       map: tex,
+      normalMap: normalTex ?? undefined,
+      normalScale: normalTex ? new THREE.Vector2(wallNormalStrength, wallNormalStrength) : undefined,
       color,
       roughness,
       metalness,
@@ -148,10 +189,21 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
     );
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    const roughness = isWasteland ? 0.8 : isPalace ? 0.55 : 0.9;
-    const metalness = isWasteland ? 0.08 : isPalace ? 0.04 : 0;
+    const normalTex = ceilNormalTex.clone();
+    normalTex.needsUpdate = true;
+    normalTex.repeat.set(
+      repeatForSize(width, CEILING_TILE_SIZE),
+      repeatForSize(depth, CEILING_TILE_SIZE),
+    );
+    normalTex.wrapS = THREE.RepeatWrapping;
+    normalTex.wrapT = THREE.RepeatWrapping;
+    const roughness = isWasteland ? 0.62 : isPalace ? 0.55 : 0.9;
+    const metalness = isWasteland ? 0.28 : isPalace ? 0.04 : 0;
+    const ceilingNormalStrength = isWasteland ? 0.9 : isPalace ? 0.45 : 0.7;
     return new THREE.MeshStandardMaterial({
       map: tex,
+      normalMap: normalTex,
+      normalScale: new THREE.Vector2(ceilingNormalStrength, ceilingNormalStrength),
       color: _color,
       roughness,
       metalness,
@@ -295,10 +347,10 @@ function buildRoom(
   const outdoor = room.outdoor ?? false;
   const fColor =
     room.floorColor ??
-    (outdoor ? 0xe8eef4 : wastelandTheme ? 0x6a6e62 : palaceTheme ? 0xf2eadf : 0x555555);
+    (outdoor ? 0xe8eef4 : wastelandTheme ? 0x3a4a50 : palaceTheme ? 0xf2eadf : 0x555555);
   const wColor =
     room.wallColor ??
-    (outdoor ? 0x7a7e82 : wastelandTheme ? 0x5a5e52 : palaceTheme ? 0xe3d6c2 : 0x666666);
+    (outdoor ? 0x7a7e82 : wastelandTheme ? 0x344249 : palaceTheme ? 0xe3d6c2 : 0x666666);
   const hw = width / 2;
   const hd = depth / 2;
   const hh = height / 2;
@@ -540,6 +592,8 @@ function buildProp(
     const isMetal = prop.type === 'crate_metal';
     const mat = new THREE.MeshStandardMaterial({
       map: isMetal ? metalCrateTexture() : woodCrateTexture(),
+      normalMap: isMetal ? metalCrateNormalTexture() : woodCrateNormalTexture(),
+      normalScale: new THREE.Vector2(1.15, 1.15),
       roughness: 0.7,
       metalness: isMetal ? 0.5 : 0.1,
     });
@@ -554,6 +608,8 @@ function buildProp(
   } else if (prop.type === 'barrel') {
     const mat = new THREE.MeshStandardMaterial({
       map: barrelTexture(),
+      normalMap: barrelNormalTexture(),
+      normalScale: new THREE.Vector2(1.05, 1.05),
       roughness: 0.5,
       metalness: 0.3,
     });

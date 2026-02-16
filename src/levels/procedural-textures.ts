@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 const cache = new Map<string, THREE.CanvasTexture>();
+const dataCache = new Map<string, THREE.CanvasTexture>();
 
 function getOrCreate(key: string, width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const cached = cache.get(key);
@@ -24,6 +25,28 @@ function getOrCreate(key: string, width: number, height: number, draw: (ctx: Can
   return tex;
 }
 
+function getOrCreateData(key: string, width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+  const cached = dataCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  draw(ctx);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.needsUpdate = true;
+  dataCache.set(key, tex);
+  return tex;
+}
+
 // ─── Helpers ───
 
 function addNoise(ctx: CanvasRenderingContext2D, w: number, h: number, strength: number): void {
@@ -36,6 +59,105 @@ function addNoise(ctx: CanvasRenderingContext2D, w: number, h: number, strength:
     d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
   }
   ctx.putImageData(id, 0, 0);
+}
+
+function deriveNormalFromTexture(key: string, source: THREE.CanvasTexture, strength = 2): THREE.CanvasTexture {
+  const sourceCanvas = source.image as HTMLCanvasElement;
+  const w = sourceCanvas.width;
+  const h = sourceCanvas.height;
+
+  return getOrCreateData(key, w, h, (ctx) => {
+    ctx.drawImage(sourceCanvas, 0, 0);
+    const sourcePixels = ctx.getImageData(0, 0, w, h).data;
+    const out = ctx.createImageData(w, h);
+    const dst = out.data;
+
+    const lumAt = (x: number, y: number): number => {
+      const px = (x + w) % w;
+      const py = (y + h) % h;
+      const idx = (py * w + px) * 4;
+      const r = sourcePixels[idx];
+      const g = sourcePixels[idx + 1];
+      const b = sourcePixels[idx + 2];
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const l = lumAt(x - 1, y);
+        const r = lumAt(x + 1, y);
+        const u = lumAt(x, y - 1);
+        const d = lumAt(x, y + 1);
+
+        const dx = ((r - l) / 255) * strength;
+        const dy = ((d - u) / 255) * strength;
+
+        let nx = -dx;
+        let ny = -dy;
+        let nz = 1;
+        const invLen = 1 / Math.hypot(nx, ny, nz);
+        nx *= invLen;
+        ny *= invLen;
+        nz *= invLen;
+
+        const idx = (y * w + x) * 4;
+        dst[idx] = Math.round((nx * 0.5 + 0.5) * 255);
+        dst[idx + 1] = Math.round((ny * 0.5 + 0.5) * 255);
+        dst[idx + 2] = Math.round((nz * 0.5 + 0.5) * 255);
+        dst[idx + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(out, 0, 0);
+  });
+}
+
+export function concreteWallNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('concrete-wall-normal', concreteWallTexture(), 2.3);
+}
+
+export function floorTileNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('floor-tile-normal', floorTileTexture(), 2.4);
+}
+
+export function ceilingPanelNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('ceiling-panel-normal', ceilingPanelTexture(), 2.1);
+}
+
+export function wastelandWallNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('wasteland-wall-normal', wastelandWallTexture(), 2.8);
+}
+
+export function wastelandFloorNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('wasteland-floor-normal', wastelandFloorTexture(), 2.9);
+}
+
+export function wastelandCeilingNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('wasteland-ceiling-normal', wastelandCeilingTexture(), 2.4);
+}
+
+export function palaceMarbleFloorNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('palace-marble-floor-normal', palaceMarbleFloorTexture(), 1.4);
+}
+
+export function palaceWallNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('palace-wall-normal', palaceWallTexture(), 1.35);
+}
+
+export function palaceCeilingNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('palace-ceiling-normal', palaceCeilingTexture(), 1.3);
+}
+
+export function woodCrateNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('wood-crate-normal', woodCrateTexture(), 2.7);
+}
+
+export function metalCrateNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('metal-crate-normal', metalCrateTexture(), 2.8);
+}
+
+export function barrelNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('barrel-normal', barrelTexture(), 2.6);
 }
 
 // ─── Concrete Wall (GoldenEye Facility style — large cinder blocks) ───
@@ -278,190 +400,198 @@ export function ceilingPanelTexture(): THREE.CanvasTexture {
 
 export function wastelandWallTexture(): THREE.CanvasTexture {
   return getOrCreate('wasteland-wall', 256, 256, (ctx) => {
-    const W = 256, H = 256;
-
-    // Base concrete — olive-grey
-    ctx.fillStyle = '#6a6e5a';
+    const W = 256;
+    const H = 256;
+    ctx.fillStyle = '#2b3438';
     ctx.fillRect(0, 0, W, H);
 
-    const blockRows = 4;
-    const blockH = H / blockRows;
-    const mortarW = 4;
+    const cols = 4;
+    const rows = 3;
+    const panelW = W / cols;
+    const panelH = H / rows;
+    const seam = 4;
 
-    for (let r = 0; r < blockRows; r++) {
-      const by = r * blockH;
-      const offset = r % 2 === 0 ? 0 : W / 4;
-      const blocksPerRow = 2;
-      const blockW = W / blocksPerRow;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = c * panelW;
+        const y = r * panelH;
+        const tone = 54 + Math.floor(Math.random() * 16 - 8);
+        ctx.fillStyle = `rgb(${tone - 6}, ${tone + 6}, ${tone + 8})`;
+        ctx.fillRect(x + seam / 2, y + seam / 2, panelW - seam, panelH - seam);
 
-      for (let c = -1; c <= blocksPerRow; c++) {
-        const bx = c * blockW + offset;
-        const base = 95 + Math.floor(Math.random() * 24 - 12);
-        const g = base - 2;
-        const b = base - 8;
-        ctx.fillStyle = `rgb(${base}, ${g}, ${b})`;
-        ctx.fillRect(bx + mortarW / 2, by + mortarW / 2, blockW - mortarW, blockH - mortarW);
-
-        ctx.fillStyle = 'rgba(0,0,0,0.14)';
-        ctx.fillRect(bx + mortarW / 2, by + mortarW / 2, blockW - mortarW, 3);
-        ctx.fillRect(bx + mortarW / 2, by + mortarW / 2, 3, blockH - mortarW);
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(bx + mortarW / 2, by + blockH - mortarW / 2 - 3, blockW - mortarW, 3);
-        ctx.fillRect(bx + blockW - mortarW / 2 - 3, by + mortarW / 2, 3, blockH - mortarW);
-      }
-      ctx.fillStyle = '#4a4e42';
-      ctx.fillRect(0, by, W, mortarW);
-    }
-    ctx.fillStyle = '#4a4e42';
-    ctx.fillRect(0, H - mortarW, W, mortarW);
-
-    for (let r = 0; r < blockRows; r++) {
-      const by = r * blockH;
-      const offset = r % 2 === 0 ? 0 : W / 4;
-      const blockW = W / 2;
-      for (let c = 0; c <= 2; c++) {
-        const mx = c * blockW + offset;
-        ctx.fillStyle = '#4a4e42';
-        ctx.fillRect(mx - mortarW / 2, by, mortarW, blockH);
-      }
-    }
-
-    // Rust streaks
-    ctx.globalAlpha = 0.12;
-    ctx.fillStyle = '#8b5a2a';
-    ctx.fillRect(60, 100, 12, 140);
-    ctx.fillStyle = '#7a4a22';
-    ctx.fillRect(175, 30, 10, 90);
-    ctx.fillStyle = '#6a3a18';
-    ctx.fillRect(100, 175, 35, 70);
-    ctx.globalAlpha = 1;
-
-    addNoise(ctx, W, H, 20);
-  });
-}
-
-// ─── Wasteland Floor (Faded industrial tile, dust, wear) ───
-
-export function wastelandFloorTexture(): THREE.CanvasTexture {
-  return getOrCreate('wasteland-floor', 256, 256, (ctx) => {
-    const W = 256, H = 256;
-    ctx.fillStyle = '#3a3e36';
-    ctx.fillRect(0, 0, W, H);
-
-    const tiles = 4;
-    const tileSize = W / tiles;
-    const groutW = 4;
-
-    for (let r = 0; r < tiles; r++) {
-      for (let c = 0; c < tiles; c++) {
-        const tx = c * tileSize;
-        const ty = r * tileSize;
-        const base = 68 + Math.floor(Math.random() * 18 - 9);
-        const green = base + 6;
-        ctx.fillStyle = `rgb(${base - 2}, ${green}, ${base - 4})`;
-        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, tileSize - groutW, tileSize - groutW);
-
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, tileSize - groutW, 2);
-        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, 2, tileSize - groutW);
-        ctx.fillStyle = 'rgba(0,0,0,0.18)';
-        ctx.fillRect(tx + groutW / 2, ty + tileSize - groutW / 2 - 2, tileSize - groutW, 2);
-        ctx.fillRect(tx + tileSize - groutW / 2 - 2, ty + groutW / 2, 2, tileSize - groutW);
-
-        if (Math.random() > 0.5) {
-          ctx.globalAlpha = 0.1;
-          ctx.strokeStyle = '#2a2a26';
-          ctx.lineWidth = 2;
-          const sx = tx + 10 + Math.random() * 30;
-          const sy = ty + 10 + Math.random() * 30;
+        for (let i = 0; i < 3; i++) {
+          const px = x + 14 + Math.random() * (panelW - 28);
+          const py = y + 12 + Math.random() * (panelH - 24);
+          const rad = 5 + Math.random() * 10;
+          ctx.fillStyle = i % 2 === 0 ? 'rgba(36, 135, 122, 0.2)' : 'rgba(143, 92, 46, 0.14)';
           ctx.beginPath();
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(sx + Math.random() * 30 - 15, sy + Math.random() * 30 - 15);
-          ctx.stroke();
-          ctx.globalAlpha = 1;
+          ctx.arc(px, py, rad, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
     }
 
-    ctx.fillStyle = '#2a2e28';
-    for (let i = 0; i <= tiles; i++) {
-      ctx.fillRect(0, i * tileSize - groutW / 2, W, groutW);
-      ctx.fillRect(i * tileSize - groutW / 2, 0, groutW, H);
+    ctx.fillStyle = '#1d2528';
+    for (let i = 0; i <= cols; i++) ctx.fillRect(i * panelW - seam / 2, 0, seam, H);
+    for (let i = 0; i <= rows; i++) ctx.fillRect(0, i * panelH - seam / 2, W, seam);
+
+    for (let y = 20; y < H; y += 32) {
+      for (let x = 20; x < W; x += 32) {
+        ctx.fillStyle = '#7a8082';
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.fillStyle = 'rgba(172, 108, 50, 0.25)';
+    ctx.fillRect(18, 92, 220, 10);
+    ctx.fillStyle = 'rgba(37, 44, 47, 0.7)';
+    for (let i = 0; i < 20; i++) {
+      const chipX = 24 + Math.random() * 208;
+      const chipW = 4 + Math.random() * 12;
+      ctx.fillRect(chipX, 94, chipW, 6);
+    }
+
+    ctx.strokeStyle = 'rgba(25, 70, 72, 0.16)';
+    ctx.lineWidth = 2;
+    for (const sx of [38, 102, 166, 218]) {
+      ctx.beginPath();
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx + Math.random() * 6 - 3, H);
+      ctx.stroke();
     }
 
     addNoise(ctx, W, H, 16);
   });
 }
 
-// ─── Wasteland Ceiling (Fluorescent with vent grilles, rust accents) ───
-
-export function wastelandCeilingTexture(): THREE.CanvasTexture {
-  return getOrCreate('wasteland-ceiling', 256, 256, (ctx) => {
-    const W = 256, H = 256;
-    ctx.fillStyle = '#4a4e48';
+export function wastelandFloorTexture(): THREE.CanvasTexture {
+  return getOrCreate('wasteland-floor', 256, 256, (ctx) => {
+    const W = 256;
+    const H = 256;
+    ctx.fillStyle = '#252f35';
     ctx.fillRect(0, 0, W, H);
 
-    const panels = 2;
-    const panelSize = W / panels;
-    const frameW = 6;
+    const plates = 4;
+    const plateSize = W / plates;
+    const seam = 4;
 
-    for (let r = 0; r < panels; r++) {
-      for (let c = 0; c < panels; c++) {
-        const px = c * panelSize;
-        const py = r * panelSize;
-        const shade = 115 + Math.floor(Math.random() * 12 - 6);
-        ctx.fillStyle = `rgb(${shade}, ${shade - 2}, ${shade - 4})`;
-        ctx.fillRect(px + frameW, py + frameW, panelSize - frameW * 2, panelSize - frameW * 2);
+    for (let r = 0; r < plates; r++) {
+      for (let c = 0; c < plates; c++) {
+        const x = c * plateSize;
+        const y = r * plateSize;
+        const t = 48 + Math.floor(Math.random() * 14 - 7);
+        ctx.fillStyle = `rgb(${t - 6}, ${t + 4}, ${t + 8})`;
+        ctx.fillRect(x + seam / 2, y + seam / 2, plateSize - seam, plateSize - seam);
 
-        ctx.fillStyle = 'rgba(0,0,0,0.28)';
-        ctx.fillRect(px + frameW, py + frameW, panelSize - frameW * 2, 4);
-        ctx.fillRect(px + frameW, py + frameW, 4, panelSize - frameW * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.08)';
-        ctx.fillRect(px + frameW, py + panelSize - frameW - 4, panelSize - frameW * 2, 4);
-        ctx.fillRect(px + panelSize - frameW - 4, py + frameW, 4, panelSize - frameW * 2);
-
-        if (r === 0 && c === 1) {
-          ctx.fillStyle = 'rgba(0,0,0,0.18)';
-          for (let vy = py + 30; vy < py + panelSize - 30; vy += 12) {
-            for (let vx = px + 30; vx < px + panelSize - 30; vx += 12) {
-              ctx.beginPath();
-              ctx.arc(vx, vy, 2, 0, Math.PI * 2);
-              ctx.fill();
-            }
-          }
+        ctx.strokeStyle = 'rgba(188, 206, 210, 0.08)';
+        ctx.lineWidth = 1;
+        for (let k = 0; k < 4; k++) {
+          const gy = y + 10 + Math.random() * (plateSize - 20);
+          ctx.beginPath();
+          ctx.moveTo(x + 8, gy);
+          ctx.lineTo(x + plateSize - 8, gy + Math.random() * 3 - 1.5);
+          ctx.stroke();
         }
       }
     }
 
-    ctx.fillStyle = '#555850';
-    for (let i = 0; i <= panels; i++) {
-      ctx.fillRect(0, i * panelSize - frameW / 2, W, frameW);
-      ctx.fillRect(i * panelSize - frameW / 2, 0, frameW, H);
-    }
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
-    for (let i = 0; i <= panels; i++) {
-      ctx.fillRect(0, i * panelSize - frameW / 2, W, 1);
-      ctx.fillRect(i * panelSize - frameW / 2, 0, 1, H);
+    ctx.fillStyle = '#161d22';
+    for (let i = 0; i <= plates; i++) {
+      ctx.fillRect(i * plateSize - seam / 2, 0, seam, H);
+      ctx.fillRect(0, i * plateSize - seam / 2, W, seam);
     }
 
-    // Fluorescent tubes — slight green tint (vault/industrial)
-    ctx.fillStyle = '#aacc99';
-    ctx.globalAlpha = 0.55;
-    ctx.fillRect(30, 50, 10, 56);
-    ctx.fillRect(86, 50, 10, 56);
-    ctx.globalAlpha = 0.12;
-    ctx.fillStyle = '#ccffbb';
-    ctx.fillRect(20, 40, 86, 76);
-    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(188, 121, 52, 0.24)';
+    ctx.fillRect(0, H / 2 - 8, W, 16);
+    ctx.fillStyle = 'rgba(30, 35, 36, 0.75)';
+    for (let i = 0; i < 28; i++) {
+      const chipX = Math.random() * W;
+      const chipW = 5 + Math.random() * 10;
+      ctx.fillRect(chipX, H / 2 - 6, chipW, 12);
+    }
 
-    // Rust around one panel
-    ctx.globalAlpha = 0.08;
-    ctx.fillStyle = '#8b5a2a';
-    ctx.fillRect(140, 140, 30, 12);
-    ctx.fillRect(100, 200, 50, 8);
-    ctx.globalAlpha = 1;
+    for (let i = 0; i < 6; i++) {
+      const cx = 24 + Math.random() * (W - 48);
+      const cy = 24 + Math.random() * (H - 48);
+      const rx = 10 + Math.random() * 18;
+      const ry = 8 + Math.random() * 14;
+      ctx.fillStyle = 'rgba(62, 175, 165, 0.16)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = '#7a8084';
+    for (let y = 8; y < H; y += plateSize) {
+      for (let x = 8; x < W; x += plateSize) {
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
 
     addNoise(ctx, W, H, 14);
+  });
+}
+
+export function wastelandCeilingTexture(): THREE.CanvasTexture {
+  return getOrCreate('wasteland-ceiling', 256, 256, (ctx) => {
+    const W = 256;
+    const H = 256;
+    ctx.fillStyle = '#2f383d';
+    ctx.fillRect(0, 0, W, H);
+
+    const panels = 2;
+    const panelSize = W / panels;
+    const frame = 6;
+
+    for (let r = 0; r < panels; r++) {
+      for (let c = 0; c < panels; c++) {
+        const x = c * panelSize;
+        const y = r * panelSize;
+        const t = 70 + Math.floor(Math.random() * 10 - 5);
+        ctx.fillStyle = `rgb(${t - 8}, ${t - 1}, ${t + 2})`;
+        ctx.fillRect(x + frame, y + frame, panelSize - frame * 2, panelSize - frame * 2);
+
+        ctx.fillStyle = 'rgba(25, 30, 33, 0.45)';
+        for (let i = 0; i < 6; i++) {
+          ctx.fillRect(x + 24, y + 22 + i * 12, panelSize - 48, 3);
+        }
+      }
+    }
+
+    ctx.fillStyle = '#1b2327';
+    for (let i = 0; i <= panels; i++) {
+      ctx.fillRect(i * panelSize - frame / 2, 0, frame, H);
+      ctx.fillRect(0, i * panelSize - frame / 2, W, frame);
+    }
+
+    ctx.fillStyle = 'rgba(142, 230, 220, 0.58)';
+    ctx.fillRect(30, 52, 12, 54);
+    ctx.fillRect(84, 52, 12, 54);
+    ctx.fillStyle = 'rgba(142, 230, 220, 0.2)';
+    ctx.fillRect(20, 42, 88, 74);
+
+    ctx.fillStyle = 'rgba(210, 130, 58, 0.22)';
+    ctx.beginPath();
+    ctx.arc(196, 188, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(230, 154, 78, 0.38)';
+    ctx.beginPath();
+    ctx.arc(196, 188, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(120, 128, 132, 0.2)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(140, 22);
+    ctx.lineTo(212, 22);
+    ctx.lineTo(212, 106);
+    ctx.stroke();
+
+    addNoise(ctx, W, H, 12);
   });
 }
 

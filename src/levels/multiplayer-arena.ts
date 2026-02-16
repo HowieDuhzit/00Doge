@@ -40,10 +40,10 @@ const CROSSFIRE_ROOM_COLORS = {
 };
 
 const WASTELAND_ROOM_COLORS = {
-  spawn: { floor: 0x6a6e62, wall: 0x5a5e52 },
-  lane: { floor: 0x5e6258, wall: 0x54584c },
-  laneSouth: { floor: 0x5a5e54, wall: 0x50544a },
-  switch: { floor: 0x666a5e, wall: 0x585c50 },
+  spawn: { floor: 0x3f5258, wall: 0x34434a },
+  lane: { floor: 0x3a4a50, wall: 0x2f3e45 },
+  laneSouth: { floor: 0x36464d, wall: 0x2d3a41 },
+  switch: { floor: 0x44585f, wall: 0x36464f },
 };
 
 function createRooms(mapId: MultiplayerMapId): RoomDef[] {
@@ -270,7 +270,7 @@ export function getMultiplayerArenaDefaultSpawnPoint(): SpawnDef {
 
 export const MULTIPLAYER_MAPS: { id: MultiplayerMapId; name: string; description: string }[] = [
   { id: 'crossfire', name: 'Crossfire Complex', description: 'Palace-style arena' },
-  { id: 'wasteland', name: 'Wasteland Depot', description: 'Industrial wasteland arena' },
+  { id: 'wasteland', name: 'Verdigris Depot', description: 'Oxidized service-bay arena' },
 ];
 
 const MAP_META: Record<MultiplayerMapId, { name: string; theme: 'palace' | 'wasteland'; briefing: string }> = {
@@ -281,10 +281,10 @@ const MAP_META: Record<MultiplayerMapId, { name: string; theme: 'palace' | 'wast
       'Procedural close-quarters multiplayer arena with two dominant shooting lanes and three connector rooms for rotates.',
   },
   wasteland: {
-    name: 'Wasteland Depot',
+    name: 'Verdigris Depot',
     theme: 'wasteland',
     briefing:
-      'Industrial wasteland arena. Same layout as Crossfire — two shooting lanes, three connector rooms. Dusty and worn.',
+      'Abandoned alloy transit depot. Same layout as Crossfire - two shooting lanes, three connector rooms. Coolant leaks and oxidized plating.',
   },
 };
 
@@ -319,4 +319,5 @@ export function createProceduralMultiplayerArena(
 ): LevelSchema {
   return createMultiplayerArena('crossfire', config);
 }
+
 
