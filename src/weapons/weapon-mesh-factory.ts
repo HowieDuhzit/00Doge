@@ -6,9 +6,11 @@ import * as THREE from 'three';
 import { getTextureSetForSkin, cloneTextureWithRepeat } from './weapon-skins';
 import type { WeaponSkin, SkinTextureRole, WeaponPartUVScale } from './weapon-skins';
 import { createPlasmaAccentMaterial } from './weapon-plasma-material';
-import { createSubdividedBox, createSubdividedCylinder } from '../core/geometry-utils';
 
 export type WeaponType = 'pistol' | 'rifle' | 'shotgun' | 'sniper';
+
+/** Texture scale (pixels per world unit) for UV mapping — prevents stretching. */
+const TEXTURE_SCALE = 256; // 128px texture = 0.5 world units
 
 /** UV repeat values — 1×1 = no tiling, one texture per face. */
 const UV_REPEAT: Record<WeaponPartUVScale, [number, number]> = {
@@ -20,6 +22,106 @@ const UV_REPEAT: Record<WeaponPartUVScale, [number, number]> = {
   grip: [1, 1],
   scope: [1, 1],
 };
+
+/**
+ * Create a subdivided box geometry with aspect-ratio-corrected UVs.
+ * Prevents texture stretching on elongated parts by tiling UVs based on actual dimensions.
+ */
+function createSubdividedBox(width: number, height: number, depth: number): THREE.BufferGeometry {
+  // Calculate segments based on size to get roughly square faces
+  const segmentsX = Math.max(1, Math.ceil(width * TEXTURE_SCALE / 128));
+  const segmentsY = Math.max(1, Math.ceil(height * TEXTURE_SCALE / 128));
+  const segmentsZ = Math.max(1, Math.ceil(depth * TEXTURE_SCALE / 128));
+
+  const geometry = new THREE.BoxGeometry(width, height, depth, segmentsX, segmentsY, segmentsZ);
+
+  // Recalculate UVs to tile based on world-space dimensions
+  const uvAttr = geometry.getAttribute('uv');
+  const posAttr = geometry.getAttribute('position');
+  const normalAttr = geometry.getAttribute('normal');
+
+  for (let i = 0; i < uvAttr.count; i++) {
+    const x = posAttr.getX(i);
+    const y = posAttr.getY(i);
+    const z = posAttr.getZ(i);
+    const nx = normalAttr.getX(i);
+    const ny = normalAttr.getY(i);
+    const nz = normalAttr.getZ(i);
+
+    let u = 0, v = 0;
+
+    // Use normals to reliably determine face orientation
+    if (Math.abs(nx) > 0.9) {
+      // Left/Right faces (YZ plane) - normal along X axis
+      u = (z + depth / 2) * TEXTURE_SCALE / 128;
+      v = (y + height / 2) * TEXTURE_SCALE / 128;
+    } else if (Math.abs(ny) > 0.9) {
+      // Top/Bottom faces (XZ plane) - normal along Y axis
+      u = (x + width / 2) * TEXTURE_SCALE / 128;
+      v = (z + depth / 2) * TEXTURE_SCALE / 128;
+    } else if (Math.abs(nz) > 0.9) {
+      // Front/Back faces (XY plane) - normal along Z axis
+      u = (x + width / 2) * TEXTURE_SCALE / 128;
+      v = (y + height / 2) * TEXTURE_SCALE / 128;
+    }
+
+    uvAttr.setXY(i, u, v);
+  }
+
+  uvAttr.needsUpdate = true;
+  return geometry;
+}
+
+/**
+ * Create a subdivided cylinder geometry with proper UV wrapping.
+ * Prevents texture stretching along cylinder length.
+ */
+function createSubdividedCylinder(
+  radiusTop: number,
+  radiusBottom: number,
+  height: number,
+  radialSegments: number = 8,
+): THREE.BufferGeometry {
+  const heightSegments = Math.max(1, Math.ceil(height * TEXTURE_SCALE / 128));
+  const geometry = new THREE.CylinderGeometry(
+    radiusTop,
+    radiusBottom,
+    height,
+    radialSegments,
+    heightSegments,
+  );
+
+  // Recalculate UVs for proper tiling along cylinder length
+  const uvAttr = geometry.getAttribute('uv');
+  const posAttr = geometry.getAttribute('position');
+  const normalAttr = geometry.getAttribute('normal');
+
+  // Calculate average radius for circumference-based tiling
+  const avgRadius = (radiusTop + radiusBottom) / 2;
+  const circumference = 2 * Math.PI * avgRadius;
+
+  for (let i = 0; i < uvAttr.count; i++) {
+    const y = posAttr.getY(i);
+    const x = posAttr.getX(i);
+    const z = posAttr.getZ(i);
+    const ny = normalAttr.getY(i);
+
+    // Check if this is a cap vertex using normal (caps have normal along Y axis)
+    const isCap = Math.abs(ny) > 0.9;
+
+    if (!isCap) {
+      // Cylindrical surface - wrap horizontally based on circumference, tile vertically
+      const angle = Math.atan2(z, x);
+      const u = (angle / (Math.PI * 2)) * circumference * TEXTURE_SCALE / 128;
+      const v = (y + height / 2) * TEXTURE_SCALE / 128;
+      uvAttr.setXY(i, u, v);
+    }
+    // Keep cap UVs as-is (radial pattern from Three.js)
+  }
+
+  uvAttr.needsUpdate = true;
+  return geometry;
+}
 
 function createMaterial(
   skin: WeaponSkin,

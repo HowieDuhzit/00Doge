@@ -11,6 +11,11 @@ import {
 const DOOR_THICKNESS = 0.15;
 const OPEN_SPEED = 2.5;
 const FRAME_WIDTH = 0.12;
+const FRAME_TILE_SIZE = 0.75;
+
+function repeatForSize(size: number, tileSize: number, min = 1): number {
+  return Math.max(min, size / tileSize);
+}
 
 interface DoorState {
   def: DoorDef;
@@ -89,7 +94,10 @@ export class DoorSystem {
     framePostTex.needsUpdate = true;
     framePostTex.wrapS = THREE.RepeatWrapping;
     framePostTex.wrapT = THREE.RepeatWrapping;
-    framePostTex.repeat.set(Math.max(1, FRAME_WIDTH / 4), Math.max(1, doorHeight / 4));
+    framePostTex.repeat.set(
+      repeatForSize(FRAME_WIDTH, FRAME_TILE_SIZE),
+      repeatForSize(doorHeight, FRAME_TILE_SIZE),
+    );
     const framePostMat = new THREE.MeshStandardMaterial({
       map: framePostTex,
       roughness: 0.5,
@@ -100,8 +108,10 @@ export class DoorSystem {
     frameHeaderTex.needsUpdate = true;
     frameHeaderTex.wrapS = THREE.RepeatWrapping;
     frameHeaderTex.wrapT = THREE.RepeatWrapping;
-    const headerW = def.width + FRAME_WIDTH * 2;
-    frameHeaderTex.repeat.set(Math.max(1, headerW / 4), Math.max(1, FRAME_WIDTH / 4));
+    frameHeaderTex.repeat.set(
+      repeatForSize(def.width + FRAME_WIDTH * 2, FRAME_TILE_SIZE),
+      repeatForSize(FRAME_WIDTH, FRAME_TILE_SIZE),
+    );
     const frameHeaderMat = new THREE.MeshStandardMaterial({
       map: frameHeaderTex,
       roughness: 0.5,
