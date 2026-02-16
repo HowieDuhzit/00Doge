@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createSubdividedBox, createSubdividedCylinder } from '../core/geometry-utils';
 import { PhysicsWorld } from '../core/physics-world';
 import type { LevelSchema, RoomDef, PropDef, DoorDef } from './level-schema';
 import type { NavMesh } from '../navmesh/navmesh';
