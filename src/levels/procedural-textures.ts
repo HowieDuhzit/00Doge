@@ -160,6 +160,18 @@ export function barrelNormalTexture(): THREE.CanvasTexture {
   return deriveNormalFromTexture('barrel-normal', barrelTexture(), 2.6);
 }
 
+export function labFloorNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('lab-floor-normal', labFloorTexture(), 2.2);
+}
+
+export function labWallNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('lab-wall-normal', labWallTexture(), 2.0);
+}
+
+export function labCeilingNormalTexture(): THREE.CanvasTexture {
+  return deriveNormalFromTexture('lab-ceiling-normal', labCeilingTexture(), 1.8);
+}
+
 // ─── Concrete Wall (GoldenEye Facility style — large cinder blocks) ───
 
 export function concreteWallTexture(): THREE.CanvasTexture {
@@ -1537,6 +1549,284 @@ export function doorFrameTexture(): THREE.CanvasTexture {
     }
 
     addNoise(ctx, W, H, 10);
+  });
+}
+
+// ─── Glowing Fluid & Lab Textures (Experimental Lab — seeded procedural variation) ───
+
+/** Seeded random for consistent procedural variation */
+function sr(seed: number): number {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
+/**
+ * Draw flowing chaotic mixture for cylinder UV mapping.
+ * Defined streaks, flow channels, and layers — avoids muddy blend.
+ * Texture layout: width = circumference wrap, height = vertical (V=0 bottom, V=1 top).
+ */
+function drawGlowingFluid(ctx: CanvasRenderingContext2D, w: number, h: number, seed: number, hueBase?: number): void {
+  const palette = [100, 190, 45, 280];
+  const hue = hueBase ?? palette[Math.floor(sr(seed) * palette.length) % palette.length];
+  const hueAccent = (hue + 80 + Math.floor(sr(seed + 1) * 100)) % 360;
+  const sat = 0.88 + sr(seed + 2) * 0.1;
+  const satAccent = 0.8 + sr(seed + 3) * 0.15;
+
+  const hsl = (h: number, s: number, l: number, a = 1) => {
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; b = 0; } else if (h < 120) { r = x; g = c; b = 0; } else if (h < 180) { r = 0; g = c; b = x; } else if (h < 240) { r = 0; g = x; b = c; } else if (h < 300) { r = x; g = 0; b = c; } else { r = c; g = 0; b = x; }
+    const R = Math.round((r + m) * 255);
+    const G = Math.round((g + m) * 255);
+    const B = Math.round((b + m) * 255);
+    return a < 1 ? `rgba(${R},${G},${B},${a})` : `rgb(${R},${G},${B})`;
+  };
+
+  // Base: vertical gradient with sharper band transitions (defined strata)
+  const baseGrad = ctx.createLinearGradient(0, h, 0, 0);
+  baseGrad.addColorStop(0, hsl(hue, sat * 0.5, 0.2));
+  baseGrad.addColorStop(0.12, hsl(hue, sat * 0.7, 0.35));
+  baseGrad.addColorStop(0.25, hsl(hue, sat * 0.85, 0.5));
+  baseGrad.addColorStop(0.5, hsl(hue, sat, 0.72));
+  baseGrad.addColorStop(0.75, hsl(hue, sat * 0.9, 0.58));
+  baseGrad.addColorStop(0.9, hsl(hue, sat * 0.75, 0.42));
+  baseGrad.addColorStop(1, hsl(hue, sat * 0.6, 0.35));
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Layer 1: MAJOR FLOW STREAKS — 4–6 wide vertical rivers, full height, gradient edges for definition
+  const majorCount = 4 + Math.floor(sr(seed + 10) * 3);
+  for (let i = 0; i < majorCount; i++) {
+    const xCenter = (sr(seed + 20 + i * 7.3) * 0.85 + 0.075) * w;
+    const width = w * (0.08 + sr(seed + 30 + i * 3.1) * 0.12);
+    const streakGrad = ctx.createLinearGradient(xCenter - width / 2, 0, xCenter + width / 2, 0);
+    streakGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    streakGrad.addColorStop(0.25, hsl(hue, sat, 0.9, 0.5));
+    streakGrad.addColorStop(0.5, hsl(hue, sat, 0.95, 0.85));
+    streakGrad.addColorStop(0.75, hsl(hue, sat, 0.9, 0.5));
+    streakGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = streakGrad;
+    ctx.fillRect(xCenter - width / 2, -h * 0.05, width, h * 1.1);
+  }
+
+  // Layer 2: ACCENT RIBBONS — 3–5 narrow, high-contrast flow channels (second fluid)
+  const ribbonCount = 3 + Math.floor(sr(seed + 60) * 3);
+  for (let i = 0; i < ribbonCount; i++) {
+    const xCenter = (sr(seed + 70 + i * 5.7) * 0.9 + 0.05) * w;
+    const yStart = sr(seed + 80 + i * 2.3) * h * 0.3;
+    const width = w * (0.025 + sr(seed + 90 + i) * 0.04);
+    const tilt = (sr(seed + 100 + i) - 0.5) * 0.15;
+    const ribbonGrad = ctx.createLinearGradient(-width * 2, 0, width * 2, 0);
+    ribbonGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    ribbonGrad.addColorStop(0.35, hsl(hueAccent, satAccent, 0.85, 0.6));
+    ribbonGrad.addColorStop(0.5, hsl(hueAccent, satAccent, 0.95, 0.9));
+    ribbonGrad.addColorStop(0.65, hsl(hueAccent, satAccent, 0.85, 0.6));
+    ribbonGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.save();
+    ctx.translate(xCenter, yStart);
+    ctx.rotate(tilt);
+    ctx.fillStyle = ribbonGrad;
+    ctx.fillRect(-width / 2, -h * 0.1, width, h * 1.2);
+    ctx.restore();
+  }
+
+  // Layer 3: DEFINED DIAGONAL FLOW LINES — thicker, fewer, readable turbulence
+  ctx.lineCap = 'round';
+  const lineCount = 6 + Math.floor(sr(seed + 130) * 5);
+  for (let i = 0; i < lineCount; i++) {
+    const sx = sr(seed + 140 + i * 6.1) * w;
+    const sy = sr(seed + 150 + i * 4.3) * h;
+    const angle = (sr(seed + 160 + i * 2.7) - 0.5) * Math.PI * 0.7;
+    const len = h * (0.25 + sr(seed + 170 + i) * 0.35);
+    const lw = Math.max(2, w * (0.012 + sr(seed + 180 + i) * 0.02));
+    ctx.strokeStyle = hsl(hue, sat, 0.92, 0.55 + sr(seed + 190 + i) * 0.3);
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + Math.cos(angle) * len, sy + Math.sin(angle) * len);
+    ctx.stroke();
+  }
+
+  // Layer 4: ACCENT SWIRL LINES — same style, accent color
+  const accentLineCount = 4 + Math.floor(sr(seed + 200) * 3);
+  for (let i = 0; i < accentLineCount; i++) {
+    const sx = sr(seed + 210 + i * 5.3) * w;
+    const sy = sr(seed + 220 + i * 4.7) * h;
+    const angle = (sr(seed + 230 + i * 2.1) - 0.5) * Math.PI * 0.8;
+    const len = h * (0.2 + sr(seed + 240 + i) * 0.4);
+    const lw = Math.max(2, w * (0.01 + sr(seed + 250 + i) * 0.015));
+    ctx.strokeStyle = hsl(hueAccent, satAccent, 0.9, 0.5 + sr(seed + 260 + i) * 0.35);
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + Math.cos(angle) * len, sy + Math.sin(angle) * len);
+    ctx.stroke();
+  }
+
+  // Layer 5: LARGE DEFINED BLOBS — 3–5 mixing zones with clear edges
+  const blobCount = 3 + Math.floor(sr(seed + 270) * 3);
+  for (let i = 0; i < blobCount; i++) {
+    const cx = sr(seed + 280 + i * 3.7) * w;
+    const cy = sr(seed + 290 + i * 4.1) * h;
+    const rx = w * (0.06 + sr(seed + 300 + i) * 0.08);
+    const ry = h * (0.08 + sr(seed + 310 + i * 1.5) * 0.1);
+    const useAccent = sr(seed + 320 + i) > 0.45;
+    const blobHue = useAccent ? hueAccent : hue;
+    const blobGrad = ctx.createRadialGradient(cx - rx * 0.3, cy - ry * 0.3, 0, cx, cy, Math.max(rx, ry));
+    blobGrad.addColorStop(0, hsl(blobHue, useAccent ? satAccent : sat, 0.9, 0.7));
+    blobGrad.addColorStop(0.5, hsl(blobHue, useAccent ? satAccent : sat, 0.75, 0.45));
+    blobGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = blobGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, sr(seed + 330 + i) * Math.PI * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Layer 6: Bubbles — sparse, bright highlights
+  const bubbleCount = 12 + Math.floor(sr(seed + 340) * 8);
+  for (let i = 0; i < bubbleCount; i++) {
+    const bx = sr(seed + 350 + i * 5.2) * w;
+    const by = sr(seed + 360 + i * 4.1) * h;
+    const br = Math.max(2, w * (0.01 + sr(seed + 370 + i * 2) * 0.015));
+    ctx.fillStyle = `rgba(255,255,255,${0.7 + sr(seed + 380 + i) * 0.25})`;
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+export function glowingFluidTexture(seed: number, hueBase?: number): THREE.CanvasTexture {
+  const key = `glowing-fluid-${seed}-${hueBase ?? -1}`;
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const W = 128;
+  const H = 256; // Taller for cylinder height mapping, enables seamless vertical flow
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  drawGlowingFluid(ctx, W, H, seed, hueBase);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  cache.set(key, tex);
+  return tex;
+}
+
+export function labFloorTexture(): THREE.CanvasTexture {
+  return getOrCreate('lab-floor', 256, 256, (ctx) => {
+    const W = 256;
+    const H = 256;
+    ctx.fillStyle = '#2a2d32';
+    ctx.fillRect(0, 0, W, H);
+
+    const tiles = 4;
+    const tileSize = W / tiles;
+    const groutW = 3;
+
+    for (let r = 0; r < tiles; r++) {
+      for (let c = 0; c < tiles; c++) {
+        const tx = c * tileSize;
+        const ty = r * tileSize;
+        const base = 58 + Math.floor(Math.random() * 14 - 7);
+        ctx.fillStyle = `rgb(${base}, ${base + 4}, ${base + 6})`;
+        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, tileSize - groutW, tileSize - groutW);
+
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, tileSize - groutW, 1);
+        ctx.fillRect(tx + groutW / 2, ty + groutW / 2, 1, tileSize - groutW);
+      }
+    }
+
+    ctx.fillStyle = '#1e2024';
+    for (let i = 0; i <= tiles; i++) {
+      ctx.fillRect(0, i * tileSize - groutW / 2, W, groutW);
+      ctx.fillRect(i * tileSize - groutW / 2, 0, groutW, H);
+    }
+
+    addNoise(ctx, W, H, 12);
+  });
+}
+
+export function labWallTexture(): THREE.CanvasTexture {
+  return getOrCreate('lab-wall', 256, 256, (ctx) => {
+    const W = 256;
+    const H = 256;
+    ctx.fillStyle = '#383c42';
+    ctx.fillRect(0, 0, W, H);
+
+    const cols = 4;
+    const rows = 3;
+    const panelW = W / cols;
+    const panelH = H / rows;
+    const seam = 5;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = c * panelW;
+        const y = r * panelH;
+        const t = 72 + Math.floor(Math.random() * 12 - 6);
+        ctx.fillStyle = `rgb(${t - 4}, ${t}, ${t + 4})`;
+        ctx.fillRect(x + seam / 2, y + seam / 2, panelW - seam, panelH - seam);
+
+        for (let i = 0; i < 2; i++) {
+          const vx = x + 20 + Math.random() * (panelW - 40);
+          const vy = y + 15 + Math.random() * (panelH - 30);
+          ctx.fillStyle = 'rgba(60, 140, 160, 0.08)';
+          ctx.fillRect(vx, vy, 40, 8);
+        }
+      }
+    }
+
+    ctx.fillStyle = '#25282c';
+    for (let i = 0; i <= cols; i++) ctx.fillRect(i * panelW - seam / 2, 0, seam, H);
+    for (let i = 0; i <= rows; i++) ctx.fillRect(0, i * panelH - seam / 2, W, seam);
+
+    addNoise(ctx, W, H, 10);
+  });
+}
+
+export function labCeilingTexture(): THREE.CanvasTexture {
+  return getOrCreate('lab-ceiling', 256, 256, (ctx) => {
+    const W = 256;
+    const H = 256;
+    ctx.fillStyle = '#4a4e54';
+    ctx.fillRect(0, 0, W, H);
+
+    const panels = 2;
+    const panelSize = W / panels;
+    const frameW = 8;
+
+    for (let r = 0; r < panels; r++) {
+      for (let c = 0; c < panels; c++) {
+        const px = c * panelSize;
+        const py = r * panelSize;
+
+        const shade = 165 + Math.floor(Math.random() * 12 - 6);
+        ctx.fillStyle = `rgb(${shade}, ${shade + 5}, ${shade + 12})`;
+        ctx.fillRect(px + frameW, py + frameW, panelSize - frameW * 2, panelSize - frameW * 2);
+
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(px + frameW + 20, py + frameW + 20, panelSize - frameW * 2 - 40, 12);
+      }
+    }
+
+    ctx.fillStyle = '#35383d';
+    for (let i = 0; i <= panels; i++) {
+      ctx.fillRect(i * panelSize - frameW / 2, 0, frameW, H);
+      ctx.fillRect(0, i * panelSize - frameW / 2, W, frameW);
+    }
+
+    addNoise(ctx, W, H, 8);
   });
 }
 

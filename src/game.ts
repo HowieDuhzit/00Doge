@@ -74,6 +74,8 @@ export interface GameOptions {
   networkManager?: NetworkManager;
   /** Multiplayer map to load. Default: 'crossfire'. */
   mapId?: 'crossfire' | 'wasteland';
+  /** Pre-loaded level for quick play (skips briefing, loads immediately). */
+  level?: LevelSchema;
 }
 
 export class Game {
@@ -473,6 +475,9 @@ export class Game {
       this.briefingScreen = new BriefingScreen();
       this.objectivesDisplay = new ObjectivesDisplay();
       this.objectivesDisplay.attach();
+      if (options.level) {
+        this.loadLevel(options.level);
+      }
     } else if (this.networkMode === 'client') {
       // Multiplayer arena: schema-based procedural map with two primary lanes.
       this.doorSystem = new DoorSystem(

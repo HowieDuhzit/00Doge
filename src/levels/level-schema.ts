@@ -7,7 +7,7 @@ export interface LevelSchema {
   /** Level display name */
   name: string;
   /** Optional visual theme hint for level builder materials. */
-  theme?: 'default' | 'palace' | 'wasteland';
+  theme?: 'default' | 'palace' | 'wasteland' | 'lab';
   /** Brief description for briefing screen */
   briefing: string;
   /** Axis-aligned rooms (floor + walls built from these) */
@@ -26,6 +26,21 @@ export interface LevelSchema {
   triggers: TriggerDef[];
   /** Static props (crates, barrels) */
   props?: PropDef[];
+  /** Lab-specific props (glass tanks, tubes with glowing fluid) */
+  labProps?: LabPropDef[];
+}
+
+export interface LabPropDef {
+  type: 'tank' | 'tube';
+  x: number;
+  y: number;
+  z: number;
+  /** Seed for procedural fluid variation (per-tank uniqueness) */
+  seed?: number;
+  /** Scale (size multiplier) */
+  scale?: number;
+  /** Optional fluid hue hint: 0-360 (HSL), or omit for procedural */
+  hueHint?: number;
 }
 
 export interface RoomDef {

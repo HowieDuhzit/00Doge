@@ -45,6 +45,20 @@ export class PhysicsWorld {
     return this.world.createCollider(colliderDesc, body);
   }
 
+  /** Create a static cylinder collider (radius, halfHeight, x, y, z) */
+  createStaticCylinder(
+    radius: number,
+    halfHeight: number,
+    x: number,
+    y: number,
+    z: number,
+  ): RAPIER.Collider {
+    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, z);
+    const body = this.world.createRigidBody(bodyDesc);
+    const colliderDesc = RAPIER.ColliderDesc.cylinder(halfHeight, radius);
+    return this.world.createCollider(colliderDesc, body);
+  }
+
   /** Cast a ray and return the first hit */
   castRay(
     originX: number,

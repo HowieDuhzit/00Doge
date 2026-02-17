@@ -1,0 +1,58 @@
+{
+  "name": "Experimental Lab",
+  "theme": "lab",
+  "briefing": "Secure the experimental lab. Neural fluid samples in containment. Expect hostiles.",
+  "rooms": [
+    {
+      "id": "lab_main",
+      "x": 0,
+      "y": 2,
+      "z": 0,
+      "width": 20,
+      "depth": 20,
+      "height": 5
+    }
+  ],
+  "doors": [],
+  "playerSpawn": { "x": 0, "y": -0.5, "z": 0 },
+  "enemies": [
+    { "x": 5, "y": -0.5, "z": 4, "facingAngle": 0, "weapon": "pistol" },
+    { "x": -6, "y": -0.5, "z": -5, "facingAngle": 1.2, "weapon": "rifle" },
+    { "x": 4, "y": -0.5, "z": -6, "facingAngle": 0.8, "weapon": "shotgun" },
+    { "x": -4, "y": -0.5, "z": 6, "facingAngle": -0.5, "weapon": "pistol" },
+    { "x": 7, "y": -0.5, "z": -3, "facingAngle": 2.1, "weapon": "rifle" }
+  ],
+  "pickups": [
+    { "type": "ammo-pistol", "x": 3, "y": -0.5, "z": -7, "amount": 24 },
+    { "type": "ammo-rifle", "x": -2, "y": -0.5, "z": 4, "amount": 30 },
+    { "type": "ammo-shotgun", "x": 5, "y": -0.5, "z": -2, "amount": 10 },
+    { "type": "health", "x": -3, "y": -0.5, "z": -4, "amount": 25 },
+    { "type": "armor", "x": 2, "y": -0.5, "z": 5, "amount": 50 },
+    { "type": "weapon-rifle", "x": -5, "y": -0.5, "z": -6, "amount": 1 },
+    { "type": "weapon-shotgun", "x": 6, "y": -0.5, "z": 4, "amount": 1 }
+  ],
+  "objectives": [],
+  "triggers": [],
+  "props": [
+    { "type": "crate", "x": 4, "y": -0.5, "z": 3, "scale": 1.0 },
+    { "type": "crate_metal", "x": -6, "y": -0.5, "z": -5, "scale": 1.0 },
+    { "type": "barrel", "x": -3, "y": -0.5, "z": 7 },
+    { "type": "crate", "x": 7, "y": -0.5, "z": -7, "scale": 0.9 },
+    { "type": "crate_metal", "x": -7, "y": -0.5, "z": 3, "scale": 1.0 },
+    { "type": "crate", "x": 6, "y": -0.5, "z": -4, "scale": 0.85 },
+    { "type": "barrel", "x": -4, "y": -0.5, "z": -2 },
+    { "type": "crate_metal", "x": 3, "y": -0.5, "z": -6, "scale": 0.95 }
+  ],
+  "labProps": [
+    { "type": "tank", "x": -8, "y": -0.5, "z": -8, "seed": 101, "hueHint": 100 },
+    { "type": "tank", "x": 8, "y": -0.5, "z": -8, "seed": 202, "hueHint": 195 },
+    { "type": "tank", "x": -8, "y": -0.5, "z": 8, "seed": 303, "hueHint": 45 },
+    { "type": "tank", "x": 8, "y": -0.5, "z": 8, "seed": 404, "hueHint": 285 },
+    { "type": "tube", "x": -5, "y": -0.5, "z": 0, "seed": 501, "hueHint": 175 },
+    { "type": "tube", "x": 5, "y": -0.5, "z": 0, "seed": 502, "hueHint": 310 },
+    { "type": "tank", "x": 0, "y": -0.5, "z": -7, "seed": 601, "scale": 1.2, "hueHint": 55 },
+    { "type": "tube", "x": -2, "y": -0.5, "z": 5, "seed": 701, "hueHint": 340 },
+    { "type": "tube", "x": 2, "y": -0.5, "z": -5, "seed": 801, "hueHint": 210 },
+    { "type": "tank", "x": -6, "y": -0.5, "z": 4, "seed": 901, "hueHint": 15 }
+  ]
+}

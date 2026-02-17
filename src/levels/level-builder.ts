@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createSubdividedBox, createSubdividedCylinder } from '../core/geometry-utils';
 import { PhysicsWorld } from '../core/physics-world';
-import type { LevelSchema, RoomDef, PropDef, DoorDef } from './level-schema';
+import type { LevelSchema, RoomDef, PropDef, DoorDef, LabPropDef } from './level-schema';
 import type { NavMesh } from '../navmesh/navmesh';
 import { DoorSystem } from './door-system';
 import { TriggerSystem } from './trigger-system';
@@ -37,7 +37,14 @@ import {
   barrelNormalTexture,
   snowGroundTexture,
   mountainWallTexture,
+  labFloorTexture,
+  labFloorNormalTexture,
+  labWallTexture,
+  labWallNormalTexture,
+  labCeilingTexture,
+  labCeilingNormalTexture,
 } from './procedural-textures';
+import { createGlowingFluidMaterial } from './lab-fluid-material';
 
 const WALL_THICKNESS = 0.2;
 const FLOOR_TILE_SIZE = 3.0;
@@ -83,24 +90,25 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
   const hasOutdoor = level.rooms.some((r) => r.outdoor);
   const isPalace = level.theme === 'palace';
   const isWasteland = level.theme === 'wasteland';
+  const isLab = level.theme === 'lab';
 
-  const ambientColor = hasOutdoor ? 0xaaccdd : isWasteland ? 0x7ea4ad : 0x8899aa;
-  const ambientIntensity = hasOutdoor ? 2.2 : isWasteland ? 1.45 : 1.8;
+  const ambientColor = hasOutdoor ? 0xaaccdd : isLab ? 0x6a8a9a : isWasteland ? 0x7ea4ad : 0x8899aa;
+  const ambientIntensity = hasOutdoor ? 2.2 : isLab ? 1.6 : isWasteland ? 1.45 : 1.8;
   const ambient = new THREE.AmbientLight(ambientColor, ambientIntensity);
   scene.add(ambient);
 
-  const hemiSky = hasOutdoor ? 0xeef5ff : isWasteland ? 0xb8e4eb : 0xddeeff;
-  const hemiGround = hasOutdoor ? 0xccdddd : isWasteland ? 0x1f2623 : 0x445544;
-  const hemiIntensity = hasOutdoor ? 1.1 : isWasteland ? 0.95 : 0.9;
+  const hemiSky = hasOutdoor ? 0xeef5ff : isLab ? 0xb8d4e8 : isWasteland ? 0xb8e4eb : 0xddeeff;
+  const hemiGround = hasOutdoor ? 0xccdddd : isLab ? 0x2a3036 : isWasteland ? 0x1f2623 : 0x445544;
+  const hemiIntensity = hasOutdoor ? 1.1 : isLab ? 0.9 : isWasteland ? 0.95 : 0.9;
   const hemi = new THREE.HemisphereLight(hemiSky, hemiGround, hemiIntensity);
   scene.add(hemi);
 
   for (const room of level.rooms) {
     const [lx, ly, lz] = [room.x, room.y + 1.5, room.z];
     const pointLight = new THREE.PointLight(
-      room.outdoor ? 0xeeddcc : isWasteland ? 0x8fe6d3 : isPalace ? 0xffefcc : 0xffeedd,
-      room.outdoor ? 120 : isWasteland ? 94 : isPalace ? 95 : 80,
-      isWasteland ? 24 : 25,
+      room.outdoor ? 0xeeddcc : isLab ? 0xc8e0f0 : isWasteland ? 0x8fe6d3 : isPalace ? 0xffefcc : 0xffeedd,
+      room.outdoor ? 120 : isLab ? 90 : isWasteland ? 94 : isPalace ? 95 : 80,
+      isLab ? 22 : isWasteland ? 24 : 25,
     );
     pointLight.position.set(lx, ly, lz);
     pointLight.castShadow = true;
@@ -109,12 +117,12 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
   }
 
   // Materials — procedural textures
-  const floorTex = isWasteland ? wastelandFloorTexture() : isPalace ? palaceMarbleFloorTexture() : floorTileTexture();
-  const floorNormalTex = isWasteland ? wastelandFloorNormalTexture() : isPalace ? palaceMarbleFloorNormalTexture() : floorTileNormalTexture();
-  const wallTex = isWasteland ? wastelandWallTexture() : isPalace ? palaceWallTexture() : concreteWallTexture();
-  const wallNormalTex = isWasteland ? wastelandWallNormalTexture() : isPalace ? palaceWallNormalTexture() : concreteWallNormalTexture();
-  const ceilTex = isWasteland ? wastelandCeilingTexture() : isPalace ? palaceCeilingTexture() : ceilingPanelTexture();
-  const ceilNormalTex = isWasteland ? wastelandCeilingNormalTexture() : isPalace ? palaceCeilingNormalTexture() : ceilingPanelNormalTexture();
+  const floorTex = isLab ? labFloorTexture() : isWasteland ? wastelandFloorTexture() : isPalace ? palaceMarbleFloorTexture() : floorTileTexture();
+  const floorNormalTex = isLab ? labFloorNormalTexture() : isWasteland ? wastelandFloorNormalTexture() : isPalace ? palaceMarbleFloorNormalTexture() : floorTileNormalTexture();
+  const wallTex = isLab ? labWallTexture() : isWasteland ? wastelandWallTexture() : isPalace ? palaceWallTexture() : concreteWallTexture();
+  const wallNormalTex = isLab ? labWallNormalTexture() : isWasteland ? wastelandWallNormalTexture() : isPalace ? palaceWallNormalTexture() : concreteWallNormalTexture();
+  const ceilTex = isLab ? labCeilingTexture() : isWasteland ? wastelandCeilingTexture() : isPalace ? palaceCeilingTexture() : ceilingPanelTexture();
+  const ceilNormalTex = isLab ? labCeilingNormalTexture() : isWasteland ? wastelandCeilingNormalTexture() : isPalace ? palaceCeilingNormalTexture() : ceilingPanelNormalTexture();
   const snowTex = snowGroundTexture();
   const mountainTex = mountainWallTexture();
 
@@ -137,9 +145,9 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
       normalTex.wrapS = THREE.RepeatWrapping;
       normalTex.wrapT = THREE.RepeatWrapping;
     }
-    const roughness = useSnow ? 0.9 : isWasteland ? 0.64 : isPalace ? 0.26 : 0.8;
-    const metalness = useSnow ? 0.05 : isWasteland ? 0.22 : isPalace ? 0.05 : 0.2;
-    const floorNormalStrength = isWasteland ? 1.25 : isPalace ? 0.65 : 0.95;
+    const roughness = useSnow ? 0.9 : isLab ? 0.7 : isWasteland ? 0.64 : isPalace ? 0.26 : 0.8;
+    const metalness = useSnow ? 0.05 : isLab ? 0.15 : isWasteland ? 0.22 : isPalace ? 0.05 : 0.2;
+    const floorNormalStrength = isLab ? 1.0 : isWasteland ? 1.25 : isPalace ? 0.65 : 0.95;
     return new THREE.MeshStandardMaterial({
       map: tex,
       normalMap: normalTex ?? undefined,
@@ -168,9 +176,9 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
       normalTex.wrapS = THREE.RepeatWrapping;
       normalTex.wrapT = THREE.RepeatWrapping;
     }
-    const roughness = useMountain ? 0.85 : isWasteland ? 0.68 : isPalace ? 0.46 : 0.7;
-    const metalness = useMountain ? 0.05 : isWasteland ? 0.2 : isPalace ? 0.08 : 0.1;
-    const wallNormalStrength = isWasteland ? 1.15 : isPalace ? 0.55 : 0.85;
+    const roughness = useMountain ? 0.85 : isLab ? 0.65 : isWasteland ? 0.68 : isPalace ? 0.46 : 0.7;
+    const metalness = useMountain ? 0.05 : isLab ? 0.12 : isWasteland ? 0.2 : isPalace ? 0.08 : 0.1;
+    const wallNormalStrength = isLab ? 1.0 : isWasteland ? 1.15 : isPalace ? 0.55 : 0.85;
     return new THREE.MeshStandardMaterial({
       map: tex,
       normalMap: normalTex ?? undefined,
@@ -197,9 +205,9 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
     );
     normalTex.wrapS = THREE.RepeatWrapping;
     normalTex.wrapT = THREE.RepeatWrapping;
-    const roughness = isWasteland ? 0.62 : isPalace ? 0.55 : 0.9;
-    const metalness = isWasteland ? 0.28 : isPalace ? 0.04 : 0;
-    const ceilingNormalStrength = isWasteland ? 0.9 : isPalace ? 0.45 : 0.7;
+    const roughness = isLab ? 0.75 : isWasteland ? 0.62 : isPalace ? 0.55 : 0.9;
+    const metalness = isLab ? 0.08 : isWasteland ? 0.28 : isPalace ? 0.04 : 0;
+    const ceilingNormalStrength = isLab ? 0.85 : isWasteland ? 0.9 : isPalace ? 0.45 : 0.7;
     return new THREE.MeshStandardMaterial({
       map: tex,
       normalMap: normalTex,
@@ -214,10 +222,10 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
   const indoorRooms = level.rooms.filter((r) => !r.outdoor);
   const outdoorRooms = level.rooms.filter((r) => r.outdoor);
   for (const room of indoorRooms) {
-    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, null, isPalace, isWasteland);
+    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, null, isPalace, isWasteland, isLab);
   }
   for (const room of outdoorRooms) {
-    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, indoorRooms, isPalace, isWasteland);
+    buildRoom(room, level.doors, scene, physics, floorMat, wallMat, ceilingMat, indoorRooms, isPalace, isWasteland, isLab);
   }
 
   if (isPalace) {
@@ -234,6 +242,11 @@ export function buildLevel(level: LevelSchema, deps: LevelBuilderDeps): void {
     for (const prop of level.props) {
       buildProp(prop, scene, physics, deps.destructibleSystem);
     }
+  }
+
+  // Lab props (glass tanks, tubes with glowing fluid)
+  if (level.labProps) {
+    buildLabProps(level.labProps, scene, physics);
   }
 
   // Player spawn
@@ -342,15 +355,16 @@ function buildRoom(
   indoorRooms: RoomDef[] | null,
   palaceTheme: boolean,
   wastelandTheme: boolean = false,
+  labTheme: boolean = false,
 ): void {
   const { x, y, z, width, depth, height } = room;
   const outdoor = room.outdoor ?? false;
   const fColor =
     room.floorColor ??
-    (outdoor ? 0xe8eef4 : wastelandTheme ? 0x3a4a50 : palaceTheme ? 0xf2eadf : 0x555555);
+    (outdoor ? 0xe8eef4 : labTheme ? 0x3a3e44 : wastelandTheme ? 0x3a4a50 : palaceTheme ? 0xf2eadf : 0x555555);
   const wColor =
     room.wallColor ??
-    (outdoor ? 0x7a7e82 : wastelandTheme ? 0x344249 : palaceTheme ? 0xe3d6c2 : 0x666666);
+    (outdoor ? 0x7a7e82 : labTheme ? 0x454950 : wastelandTheme ? 0x344249 : palaceTheme ? 0xe3d6c2 : 0x666666);
   const hw = width / 2;
   const hd = depth / 2;
   const hh = height / 2;
@@ -623,6 +637,110 @@ function buildProp(
     const collider = physics.createStaticCuboid(0.4 * scale, 0.6 * scale, 0.4 * scale, x, baseY + 0.6 * scale, z);
     destructible.register(mesh, collider, 'barrel', undefined, 0.8 * scale, prop.loot);
   }
+}
+
+/** Glass tanks and tubes with procedurally generated glowing fluid. */
+function buildLabProps(
+  labProps: LabPropDef[],
+  scene: THREE.Scene,
+  physics: PhysicsWorld,
+): void {
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0xe8f4fc,
+    transmission: .9,
+    roughness: 0.03,
+    thickness: 0.08,
+    ior: 1.5,
+    transparent: true,
+    opacity: 0.5,
+    side: THREE.DoubleSide,
+  });
+
+  const labFloorOffset = 0.02;
+
+  for (const prop of labProps) {
+    const scale = prop.scale ?? 1;
+    const seed = prop.seed ?? Math.floor(prop.x * 1000 + prop.z * 100);
+    const hueHint = prop.hueHint;
+    const { x, y, z } = prop;
+    const baseY = y + labFloorOffset;
+
+    const fluidMat = createGlowingFluidMaterial(seed, hueHint);
+
+    const group = new THREE.Group();
+    group.position.set(x, baseY, z);
+
+    if (prop.type === 'tank') {
+      const radius = 0.6 * scale;
+      const height = 1.4 * scale;
+      const radialSegs = 48;
+
+      const fluidRadius = radius * 0.9;
+      const fluidHeight = height * 0.86;
+      const fluid = new THREE.Mesh(
+        createSubdividedCylinder(fluidRadius, fluidRadius * 0.95, fluidHeight, radialSegs),
+        fluidMat,
+      );
+      fluid.position.y = 0.02;
+      fluid.renderOrder = 1;
+      group.add(fluid);
+
+      const glass = new THREE.Mesh(
+        createSubdividedCylinder(radius, radius * 0.95, height, radialSegs),
+        glassMat.clone(),
+      );
+      glass.castShadow = true;
+      glass.renderOrder = 2;
+      group.add(glass);
+
+      physics.createStaticCylinder(radius, height / 2, x, baseY + height / 2, z);
+
+      const glowColor = hueHint != null ? hslToHex(hueHint, 0.85, 0.6) : 0x44dd88;
+      const light = new THREE.PointLight(glowColor, 5, 6);
+      light.position.set(0, height / 2, 0);
+      group.add(light);
+    } else {
+      const radius = 0.25 * scale;
+      const height = 2.2 * scale;
+      const radialSegs = 36;
+
+      const fluidRadius = radius * 0.88;
+      const fluidHeight = height * 0.88;
+      const fluid = new THREE.Mesh(
+        createSubdividedCylinder(fluidRadius, fluidRadius * 0.98, fluidHeight, radialSegs),
+        fluidMat,
+      );
+      fluid.position.y = 0.02;
+      fluid.renderOrder = 1;
+      group.add(fluid);
+
+      const glass = new THREE.Mesh(
+        createSubdividedCylinder(radius, radius * 0.98, height, radialSegs),
+        glassMat.clone(),
+      );
+      glass.castShadow = true;
+      glass.renderOrder = 2;
+      group.add(glass);
+
+      physics.createStaticCylinder(radius, height / 2, x, baseY + height / 2, z);
+
+      const glowColor = hueHint != null ? hslToHex(hueHint, 0.85, 0.6) : 0x66aaff;
+      const light = new THREE.PointLight(glowColor, 4, 5);
+      light.position.set(0, height / 2, 0);
+      group.add(light);
+    }
+
+    scene.add(group);
+  }
+}
+
+function hslToHex(h: number, s: number, l: number): number {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; b = 0; } else if (h < 120) { r = x; g = c; b = 0; } else if (h < 180) { r = 0; g = c; b = x; } else if (h < 240) { r = 0; g = x; b = c; } else if (h < 300) { r = x; g = 0; b = c; } else { r = c; g = 0; b = x; }
+  return (Math.round((r + m) * 255) << 16) | (Math.round((g + m) * 255) << 8) | Math.round((b + m) * 255);
 }
 
 /**

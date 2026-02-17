@@ -159,6 +159,22 @@ async function init(): Promise<void> {
     canvas.addEventListener('click', () => game.start());
   });
 
+  // Quick Play — Experimental Lab: level with glass tanks and glowing fluids
+  document.getElementById('btn-quick-play-lab')!.addEventListener('click', async () => {
+    await customModelReady;
+    try {
+      const level = await loadLevel('/levels/experimental-lab.json');
+      const game = new Game(canvas, physics, { levelMode: true, level });
+      document.getElementById('start-screen')!.style.display = 'none';
+      hideCCTVBackground();
+      game.start();
+      canvas.addEventListener('click', () => game.start());
+    } catch (err) {
+      console.error('Experimental Lab load failed:', err);
+      alert('Could not load Experimental Lab. Make sure you run with "npm run dev".');
+    }
+  });
+
   // Mission: load facility, briefing, then play
   const missionBtn = document.getElementById('btn-mission');
   if (missionBtn) {
