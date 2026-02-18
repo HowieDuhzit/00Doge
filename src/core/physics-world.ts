@@ -59,6 +59,24 @@ export class PhysicsWorld {
     return this.world.createCollider(colliderDesc, body);
   }
 
+  /**
+   * Create a static trimesh collider from mesh geometry.
+   * Vertices should be in world space (Float32Array: x,y,z per vertex).
+   * Indices are triangle indices (Uint32Array).
+   * Body is placed at origin; vertex positions encode the final placement.
+   * Uses contactSkin to improve trimesh collision reliability (Rapier known issue).
+   */
+  createStaticTrimesh(
+    vertices: Float32Array,
+    indices: Uint32Array,
+  ): RAPIER.Collider {
+    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, 0, 0);
+    const body = this.world.createRigidBody(bodyDesc);
+    const colliderDesc = RAPIER.ColliderDesc.trimesh(vertices, indices)
+      .setContactSkin(0.08);
+    return this.world.createCollider(colliderDesc, body);
+  }
+
   /** Cast a ray and return the first hit */
   castRay(
     originX: number,

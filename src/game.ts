@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Renderer } from './core/renderer';
 import { GameLoop } from './core/game-loop';
 import { InputManager } from './core/input-manager';
+import type RAPIER from '@dimforge/rapier3d-compat';
 import { PhysicsWorld } from './core/physics-world';
 import { EventBus } from './core/event-bus';
 import { globalLightPool } from './core/light-pool';
@@ -19,6 +20,9 @@ import { ObjectiveSystem } from './levels/objective-system';
 import { buildLevel } from './levels/level-builder';
 import type { LevelSchema } from './levels/level-schema';
 import { createMultiplayerArena } from './levels/multiplayer-arena';
+import { loadEnvironmentGLB } from './levels/custom-environment-loader';
+import { loadQuickplayConfig } from './levels/quickplay-config';
+import { loadHDRI, loadSkyboxImage, applyEnvironment } from './levels/environment-loader';
 import { NavMesh } from './navmesh/navmesh';
 import { DestructibleSystem } from './levels/destructible-system';
 import { HUD } from './ui/hud';
@@ -76,6 +80,8 @@ export interface GameOptions {
   mapId?: 'crossfire' | 'wasteland';
   /** Pre-loaded level for quick play (skips briefing, loads immediately). */
   level?: LevelSchema;
+  /** Custom quickplay: load GLB + HDRI from public/maps/quickplay/, populate with props. */
+  customQuickplay?: boolean;
 }
 
 export class Game {
@@ -130,6 +136,15 @@ export class Game {
   private physicsAccumulator = 0;
   private started = false;
   private levelMode: boolean;
+  private customQuickplay: boolean;
+  /** Y-offset for spawns when using custom terrain (bbox midpoint). */
+  private customGroundLevel: number | null = null;
+  /** Raycast-based ground height for custom quickplay varied terrain. */
+  private getGroundHeight?: (x: number, z: number, exclude?: RAPIER.Collider) => number;
+  /** Terrain meshes and raycaster for Three.js-based ground queries (custom quickplay). */
+  private customTerrainRaycaster: { raycaster: THREE.Raycaster; meshes: THREE.Mesh[]; down: THREE.Vector3; origin: THREE.Vector3 } | null = null;
+  /** Bbox center for prop layout across full terrain (custom quickplay). */
+  private customSpawnCenter: { x: number; z: number } | null = null;
   private missionComplete = false;
   private missionElapsed = 0;
   private levelName = '';
@@ -184,6 +199,7 @@ export class Game {
   ) {
     this.canvas = canvas;
     this.levelMode = options.levelMode ?? false;
+    this.customQuickplay = options.customQuickplay ?? false;
     this.networkMode = options.networkMode ?? 'local';
     this.networkManager = options.networkManager ?? null;
     this.physics = physics;
@@ -491,6 +507,8 @@ export class Game {
       this.triggerSystem.onTrigger = (event) => this.handleTrigger(event);
       this.objectiveSystem = new ObjectiveSystem();
       this.loadLevel(createMultiplayerArena(options.mapId ?? 'crossfire'));
+    } else if (options.customQuickplay) {
+      // Custom quickplay: scene built async in prepareCustomScene() before start().
     } else {
       this.buildTestScene();
       this.spawnTestEnemies();
@@ -1244,6 +1262,22 @@ export class Game {
       this.tacticalOverlay.visible = !this.tacticalOverlay.visible;
     }
 
+    // Set spawn point (F8 key) — use current position for single-player respawn
+    if (this.input.wasKeyJustPressed('f8')) {
+      const pos = this.player.getPosition();
+      this.playerSpawnPosition = { x: pos.x, y: pos.y, z: pos.z };
+      if (this.customQuickplay) {
+        try {
+          localStorage.setItem(
+            '007remix_custom_spawn',
+            JSON.stringify({ x: pos.x, y: pos.y, z: pos.z }),
+          );
+          console.log('Spawn point set:', { x: pos.x, y: pos.y, z: pos.z });
+        } catch (_) {}
+      }
+      this.hud.showPickupNotification('Spawn point set');
+    }
+
     // Flashlight toggle (V key)
     if (this.input.wasKeyJustPressed('v')) {
       this.flashlightOn = !this.flashlightOn;
@@ -1341,30 +1375,39 @@ export class Game {
   // ──────────── Enemy Spawns ────────────
 
   private spawnTestEnemies(): void {
+    const yOff = this.customGroundLevel ?? 0;
+    const c = this.customSpawnCenter;
+    const ox = (x: number) => (c ? c.x + x : x);
+    const oz = (z: number) => (c ? c.z + z : z);
+    const getY = (x: number, z: number) =>
+      this.customQuickplay && this.getGroundHeight
+        ? this.getGroundHeight(x, z) - 0.3
+        : yOff;
+
     // Guard near the crate stack (facing player spawn)
     this.enemyManager.spawnEnemy({
-      x: 5, y: 0, z: 5,
+      x: ox(5), y: getY(ox(5), oz(5)), z: oz(5),
       facingAngle: Math.PI + 0.5,
       weapon: 'pistol',
     });
 
     // Guard behind barrels (facing center)
     this.enemyManager.spawnEnemy({
-      x: -6, y: 0, z: -6,
+      x: ox(-6), y: getY(ox(-6), oz(-6)), z: oz(-6),
       facingAngle: Math.PI / 4,
       weapon: 'rifle',
     });
 
     // Guard near far wall (patrolling area)
     this.enemyManager.spawnEnemy({
-      x: 7, y: 0, z: -5,
+      x: ox(7), y: getY(ox(7), oz(-5)), z: oz(-5),
       facingAngle: Math.PI,
       weapon: 'shotgun',
     });
 
     // Guard near table crate
     this.enemyManager.spawnEnemy({
-      x: -4, y: 0, z: 6,
+      x: ox(-4), y: getY(ox(-4), oz(6)), z: oz(6),
       facingAngle: -Math.PI / 2,
       weapon: 'sniper',
     });
@@ -1419,23 +1462,32 @@ export class Game {
   }
 
   private spawnTestPickups(): void {
+    const yOff = this.customGroundLevel ?? 0;
+    const c = this.customSpawnCenter;
+    const ox = (x: number) => (c ? c.x + x : x);
+    const oz = (z: number) => (c ? c.z + z : z);
+    const getY = (x: number, z: number) =>
+      this.customQuickplay && this.getGroundHeight
+        ? this.getGroundHeight(x, z)
+        : yOff;
+
     // Weapons scattered around the room
-    this.pickupSystem.spawn('weapon-rifle', -3, 0, -3, 0);
-    this.pickupSystem.spawn('weapon-shotgun', 6, 0, 6, 0);
-    this.pickupSystem.spawn('weapon-sniper', -7, 0, 7, 0);
+    this.pickupSystem.spawn('weapon-rifle', ox(-3), getY(ox(-3), oz(-3)), oz(-3), 0);
+    this.pickupSystem.spawn('weapon-shotgun', ox(6), getY(ox(6), oz(6)), oz(6), 0);
+    this.pickupSystem.spawn('weapon-sniper', ox(-7), getY(ox(-7), oz(7)), oz(7), 0);
 
     // Health packs
-    this.pickupSystem.spawn('health', 0, 0, 8, 25);
-    this.pickupSystem.spawn('health', -8, 0, 0, 25);
+    this.pickupSystem.spawn('health', ox(0), getY(ox(0), oz(8)), oz(8), 25);
+    this.pickupSystem.spawn('health', ox(-8), getY(ox(-8), oz(0)), oz(0), 25);
 
     // Armor
-    this.pickupSystem.spawn('armor', 8, 0, 0, 50);
+    this.pickupSystem.spawn('armor', ox(8), getY(ox(8), oz(0)), oz(0), 50);
 
     // Ammo
-    this.pickupSystem.spawn('ammo-pistol', 3, 0, -7, 14);
-    this.pickupSystem.spawn('ammo-rifle', -2, 0, 4, 30);
-    this.pickupSystem.spawn('ammo-shotgun', 5, 0, -2, 10);
-    this.pickupSystem.spawn('ammo-sniper', -5, 0, 2, 5);
+    this.pickupSystem.spawn('ammo-pistol', ox(3), getY(ox(3), oz(-7)), oz(-7), 14);
+    this.pickupSystem.spawn('ammo-rifle', ox(-2), getY(ox(-2), oz(4)), oz(4), 30);
+    this.pickupSystem.spawn('ammo-shotgun', ox(5), getY(ox(5), oz(-2)), oz(-2), 10);
+    this.pickupSystem.spawn('ammo-sniper', ox(-5), getY(ox(-5), oz(2)), oz(2), 5);
   }
 
   // ──────────── Test Scene ────────────
@@ -1585,6 +1637,257 @@ export class Game {
       this.scene.add(barrel);
       const collider = this.physics.createStaticCuboid(0.4, 0.6, 0.4, bx, by, bz);
       this.destructibleSystem.register(barrel, collider, 'barrel', undefined, 0.8);
+    }
+  }
+
+  /**
+   * Check if an asset URL exists and returns binary/asset content (not HTML 404 page).
+   * Prevents loaders from receiving HTML when Vite serves index.html for missing files.
+   */
+  private async checkAssetExists(url: string): Promise<boolean> {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return false;
+      const ct = res.headers.get('content-type') ?? '';
+      return !ct.includes('text/html');
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Load custom GLB + HDRI for quickplay and build the scene.
+   * Call before start() when customQuickplay is true.
+   * On load failure, falls back to procedural buildTestScene.
+   */
+  async prepareCustomScene(): Promise<void> {
+    if (!this.customQuickplay) return;
+
+    this.customGroundLevel = null;
+    this.customSpawnCenter = null;
+    this.customTerrainRaycaster = null;
+    try {
+      await this.buildCustomQuickplayScene();
+    } catch (err) {
+      console.warn('[Game] Custom quickplay load failed, falling back to procedural arena:', err);
+      this.buildTestScene();
+    }
+    this.spawnTestEnemies();
+    this.spawnTestPickups();
+    this.customGroundLevel = null;
+    this.customSpawnCenter = null;
+    this.customTerrainRaycaster = null;
+  }
+
+  private async buildCustomQuickplayScene(): Promise<void> {
+    const baseUrl = '/maps/quickplay/';
+    const config = await loadQuickplayConfig(baseUrl);
+    const glbUrl = `${baseUrl}${config.environment}`;
+    const hdriUrl = `${baseUrl}${config.hdri}`;
+    const skyboxUrl = `${baseUrl}${config.skybox}`;
+
+    if (!(await this.checkAssetExists(glbUrl))) {
+      throw new Error(
+        `${config.environment} not found. Add your GLB to public/maps/quickplay/`,
+      );
+    }
+
+    const envResult = await loadEnvironmentGLB(glbUrl);
+
+    let envMap: THREE.Texture | null = null;
+    let skyboxTexture: THREE.Texture | null = null;
+
+    if (await this.checkAssetExists(hdriUrl)) {
+      try {
+        envMap = await loadHDRI(hdriUrl, this.renderer.instance);
+      } catch {
+        envMap = null;
+      }
+    }
+    if (await this.checkAssetExists(skyboxUrl)) {
+      try {
+        skyboxTexture = await loadSkyboxImage(skyboxUrl);
+      } catch {
+        skyboxTexture = null;
+      }
+    }
+
+    this.scene.add(envResult.scene);
+
+    if (envMap) {
+      this.scene.fog = null;
+      applyEnvironment(this.scene, envMap, {
+        backgroundTexture: skyboxTexture ?? undefined,
+      });
+    } else if (skyboxTexture) {
+      this.scene.fog = null;
+      this.scene.background = skyboxTexture;
+    }
+
+    // Fallback lights when HDRI not used
+    if (!envMap) {
+      const ambient = new THREE.AmbientLight(0x404060, 0.6);
+      this.scene.add(ambient);
+      const pointLight = new THREE.PointLight(0xffffee, 40, 35);
+      pointLight.position.set(0, 4.5, 0);
+      pointLight.castShadow = true;
+      pointLight.shadow.mapSize.set(512, 512);
+      this.scene.add(pointLight);
+    }
+
+    const bbox = new THREE.Box3().setFromObject(envResult.scene);
+    const centerX = (bbox.min.x + bbox.max.x) / 2;
+    const centerZ = (bbox.min.z + bbox.max.z) / 2;
+    const groundLevel = (bbox.min.y + bbox.max.y) / 2;
+
+    // Collect terrain meshes for Three.js raycasting (hits actual visible geometry)
+    const terrainMeshes: THREE.Mesh[] = [];
+    envResult.scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.geometry) terrainMeshes.push(obj);
+    });
+    const raycaster = new THREE.Raycaster();
+    const down = new THREE.Vector3(0, -1, 0);
+    const origin = new THREE.Vector3();
+    this.customTerrainRaycaster =
+      terrainMeshes.length > 0
+        ? { raycaster, meshes: terrainMeshes, down, origin }
+        : null;
+
+    if (envResult.colliderData && envResult.colliderData.vertices.length > 0) {
+      try {
+        this.physics.createStaticTrimesh(
+          envResult.colliderData.vertices,
+          envResult.colliderData.indices,
+        );
+      } catch (e) {
+        console.warn('[Game] Trimesh collider failed, using floor fallback only:', e);
+      }
+    }
+
+    const rayOriginY = bbox.max.y + 5;
+    const maxToi = bbox.max.y - bbox.min.y + 10;
+    this.getGroundHeight = (x: number, z: number, exclude?: RAPIER.Collider) => {
+      // Prefer Three.js Raycaster — hits actual mesh geometry (handles varied terrain)
+      if (this.customTerrainRaycaster) {
+        const { raycaster, meshes, down, origin } = this.customTerrainRaycaster;
+        origin.set(x, rayOriginY, z);
+        raycaster.set(origin, down);
+        raycaster.far = maxToi;
+        const hits = raycaster.intersectObjects(meshes, true);
+        if (hits.length > 0 && hits[0].point.y <= rayOriginY) {
+          return hits[0].point.y;
+        }
+      }
+      // Fallback: Rapier physics raycast
+      const hit = this.physics.castRay(
+        x,
+        rayOriginY,
+        z,
+        0,
+        -1,
+        0,
+        maxToi,
+        exclude,
+      );
+      if (hit) return hit.point.y;
+      return groundLevel;
+    };
+
+    // Crates and barrels — raycast for per-position ground height
+    const crateMat = new THREE.MeshStandardMaterial({
+      map: woodCrateTexture(),
+      roughness: 0.7,
+      metalness: 0.1,
+    });
+    const metalCrateMat = new THREE.MeshStandardMaterial({
+      map: metalCrateTexture(),
+      roughness: 0.3,
+      metalness: 0.7,
+    });
+    const barrelMat = new THREE.MeshStandardMaterial({
+      map: barrelTexture(),
+      roughness: 0.5,
+      metalness: 0.3,
+    });
+
+    // Layout center = bbox center so props span the full terrain
+    const layoutCenterX = centerX;
+    const layoutCenterZ = centerZ;
+    const crateData: { w: number; h: number; d: number; x: number; y: number; z: number; mat: THREE.Material; type: 'crate' | 'crate_metal' }[] = [
+      { w: 1.2, h: 1.2, d: 1.2, x: layoutCenterX + 4, y: 0.6, z: layoutCenterZ + 3, mat: crateMat, type: 'crate' },
+      { w: 1, h: 1, d: 1, x: layoutCenterX + 4.8, y: 0.5, z: layoutCenterZ + 4.2, mat: crateMat, type: 'crate' },
+      { w: 0.8, h: 0.8, d: 0.8, x: layoutCenterX + 3.5, y: 1.6, z: layoutCenterZ + 3.3, mat: crateMat, type: 'crate' },
+      { w: 1.5, h: 1, d: 1.5, x: layoutCenterX - 6, y: 0.5, z: layoutCenterZ - 5, mat: metalCrateMat, type: 'crate_metal' },
+      { w: 1, h: 0.8, d: 1, x: layoutCenterX - 5.5, y: 0.4, z: layoutCenterZ - 3.5, mat: metalCrateMat, type: 'crate_metal' },
+      { w: 2, h: 1.5, d: 0.8, x: layoutCenterX - 3, y: 0.75, z: layoutCenterZ + 7, mat: crateMat, type: 'crate' },
+      { w: 0.6, h: 2, d: 0.6, x: layoutCenterX + 7, y: 1, z: layoutCenterZ - 7, mat: metalCrateMat, type: 'crate_metal' },
+      { w: 0.6, h: 2, d: 0.6, x: layoutCenterX - 7, y: 1, z: layoutCenterZ - 7, mat: metalCrateMat, type: 'crate_metal' },
+    ];
+
+    for (const c of crateData) {
+      const py = this.getGroundHeight!(c.x, c.z) + c.y;
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(c.w, c.h, c.d), c.mat);
+      crate.position.set(c.x, py, c.z);
+      crate.castShadow = true;
+      crate.receiveShadow = true;
+      this.scene.add(crate);
+      const collider = this.physics.createStaticCuboid(c.w / 2, c.h / 2, c.d / 2, c.x, py, c.z);
+      this.destructibleSystem.register(crate, collider, c.type, undefined, Math.max(c.w, c.h, c.d));
+    }
+
+    const barrelPositions: [number, number, number][] = [
+      [layoutCenterX + 6, 0.6, layoutCenterZ - 4],
+      [layoutCenterX + 6.8, 0.6, layoutCenterZ - 3.5],
+      [layoutCenterX - 2, 0.6, layoutCenterZ - 8],
+    ];
+    for (const [bx, by, bz] of barrelPositions) {
+      const by2 = this.getGroundHeight!(bx, bz) + by;
+      const barrel = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 0.4, 1.2, 8),
+        barrelMat.clone(),
+      );
+      barrel.position.set(bx, by2, bz);
+      barrel.castShadow = true;
+      barrel.receiveShadow = true;
+      this.scene.add(barrel);
+      const collider = this.physics.createStaticCuboid(0.4, 0.6, 0.4, bx, by2, bz);
+      this.destructibleSystem.register(barrel, collider, 'barrel', undefined, 0.8);
+    }
+
+    const DEFAULT_CUSTOM_SPAWN = {
+      x: -1.3201937675476074,
+      y: 14.632231712341309,
+      z: 63.107688903808594,
+    };
+    let spawnX = DEFAULT_CUSTOM_SPAWN.x;
+    let spawnY = DEFAULT_CUSTOM_SPAWN.y;
+    let spawnZ = DEFAULT_CUSTOM_SPAWN.z;
+
+    try {
+      const saved = localStorage.getItem('007remix_custom_spawn');
+      if (saved) {
+        const parsed = JSON.parse(saved) as { x: number; y: number; z: number };
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number' && typeof parsed.z === 'number') {
+          spawnX = parsed.x;
+          spawnY = parsed.y;
+          spawnZ = parsed.z;
+          console.log('Custom quickplay spawn (saved):', { x: spawnX, y: spawnY, z: spawnZ });
+        }
+      } else {
+        console.log('Custom quickplay spawn (default):', { x: spawnX, y: spawnY, z: spawnZ });
+      }
+    } catch (_) {}
+
+    this.playerSpawnPosition = { x: spawnX, y: spawnY, z: spawnZ };
+    this.player.setPosition(spawnX, spawnY, spawnZ);
+
+    this.customGroundLevel = groundLevel;
+    this.customSpawnCenter = { x: layoutCenterX, z: layoutCenterZ };
+
+    if (this.getGroundHeight) {
+      this.enemyManager.setGroundHeight(
+        (x, z, exclude) => this.getGroundHeight!(x, z, exclude),
+      );
     }
   }
 }

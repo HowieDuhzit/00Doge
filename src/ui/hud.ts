@@ -96,8 +96,8 @@ export class HUD {
     const hint = document.getElementById('controls-hint');
     if (hint) {
       hint.textContent = enabled
-        ? 'Q Scoreboard · I Inventory · Shift Sprint · C Crouch · N NV/Mask · V Flashlight'
-        : 'Tab Inventory · Shift Sprint · C Crouch · N NV/Mask · V Flashlight';
+        ? 'Q Scoreboard · I Inventory · Shift Sprint · C Crouch · N NV/Mask · V Flashlight · F8 Spawn'
+        : 'Tab Inventory · Shift Sprint · C Crouch · N NV/Mask · V Flashlight · F8 Spawn';
     }
   }
 

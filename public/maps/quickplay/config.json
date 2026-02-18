@@ -1,0 +1,16 @@
+{
+  "environment": "environment.glb",
+  "hdri": "environment.hdr",
+  "skybox": "skybox.jpg",
+  "presets": {
+    "day": {
+      "hdri": "environment.hdr",
+      "skybox": "skybox.jpg"
+    },
+    "night": {
+      "hdri": "environment_night.hdr",
+      "skybox": "skybox_night.jpg"
+    }
+  },
+  "preset": "day"
+}

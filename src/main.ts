@@ -159,6 +159,25 @@ async function init(): Promise<void> {
     canvas.addEventListener('click', () => game.start());
   });
 
+  // Quick Play — Custom Arena: GLB + HDRI from public/maps/quickplay/
+  document.getElementById('btn-quick-play-custom')!.addEventListener('click', async () => {
+    await customModelReady;
+    const game = new Game(canvas, physics, { customQuickplay: true });
+    document.getElementById('start-screen')!.style.display = 'none';
+    hideCCTVBackground();
+    try {
+      await game.prepareCustomScene();
+      game.start();
+      canvas.addEventListener('click', () => game.start());
+    } catch (err) {
+      console.error('Custom arena load failed:', err);
+      alert(
+        'Custom Arena assets not found. Add environment.glb (required) to public/maps/quickplay/\n' +
+          'Optional: environment.hdr for HDRI lighting. See public/maps/quickplay/README.md'
+      );
+    }
+  });
+
   // Quick Play — Experimental Lab: level with glass tanks and glowing fluids
   document.getElementById('btn-quick-play-lab')!.addEventListener('click', async () => {
     await customModelReady;

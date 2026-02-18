@@ -52,6 +52,9 @@ export class EnemyManager {
   // Navmesh for pathfinding (set when level loads)
   private navMesh: NavMesh | null = null;
 
+  /** Optional ground height callback for terrain following (custom quickplay). */
+  private getGroundHeight: ((x: number, z: number, exclude: RAPIER.Collider) => number | null) | null = null;
+
   // Callback for when enemy shoots the player
   onPlayerHit: ((damage: number, fromPos: THREE.Vector3) => void) | null = null;
   /** Called when an enemy shot hits geometry (wall/etc) — for decals and particles */
@@ -92,6 +95,11 @@ export class EnemyManager {
   /** Get navmesh for pathfinding. Returns null if not available (e.g. Quick Play). */
   getNavMesh(): NavMesh | null {
     return this.navMesh;
+  }
+
+  /** Set ground height callback for terrain following (custom quickplay). When set, enemies snap Y to ground each frame. */
+  setGroundHeight(cb: (x: number, z: number, exclude: RAPIER.Collider) => number | null): void {
+    this.getGroundHeight = cb;
   }
 
   /** Spawn an enemy at the given position */
@@ -372,6 +380,16 @@ export class EnemyManager {
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
       enemy.update(dt, this.cameraPos);
+
+      // Snap enemy Y to terrain when ground height callback is set (custom quickplay)
+      if (!enemy.dead && this.getGroundHeight) {
+        const pos = enemy.group.position;
+        const groundY = this.getGroundHeight(pos.x, pos.z, enemy.collider);
+        if (groundY != null) {
+          pos.y = groundY - 0.3;
+          this.syncPhysicsBody(enemy);
+        }
+      }
 
       // Remove dead enemies after delay
       if (enemy.dead) {
