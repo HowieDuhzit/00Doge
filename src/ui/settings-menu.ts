@@ -14,7 +14,7 @@ function applyVolume(): void {
   setSFXVolume(s);
 }
 
-type SettingsTab = 'controls' | 'aim' | 'audio' | 'gameplay';
+type SettingsTab = 'controls' | 'aim' | 'audio' | 'gameplay' | 'display';
 
 export class SettingsMenu {
   private overlay: HTMLDivElement;
@@ -73,9 +73,16 @@ export class SettingsMenu {
       font-family: 'Courier New', monospace;
       transition: background 0.2s;
     `;
-    for (const id of ['controls', 'aim', 'audio', 'gameplay'] as const) {
+    for (const id of ['controls', 'aim', 'audio', 'gameplay', 'display'] as const) {
       const tab = document.createElement('div');
-      tab.textContent = id === 'controls' ? 'CONTROLS' : id === 'aim' ? 'AIM' : id === 'audio' ? 'AUDIO' : 'GAMEPLAY';
+      const labels: Record<SettingsTab, string> = {
+        controls: 'CONTROLS',
+        aim: 'AIM',
+        audio: 'AUDIO',
+        gameplay: 'GAMEPLAY',
+        display: 'DISPLAY',
+      };
+      tab.textContent = labels[id];
       tab.style.cssText = tabStyle(id === 'controls');
       tab.dataset.tab = id;
       tab.addEventListener('click', () => this.showTab(id));
@@ -167,6 +174,31 @@ export class SettingsMenu {
     this.panels.gameplay = gameplayPanel;
     contentWrap.appendChild(gameplayPanel);
 
+    // DISPLAY panel (day/night cycle — custom quickplay)
+    const displayPanel = document.createElement('div');
+    displayPanel.dataset.panel = 'display';
+    const displaySection = this.createSectionContent();
+    displaySection.appendChild(this.createCheckbox('Day/Night Cycle', g.dayNightCycle, (v) =>
+      GameSettings.set({ dayNightCycle: v }),
+    ));
+    displaySection.appendChild(this.createSlider('Cycle Speed', g.dayNightSpeed, 0, 200, '%', (v) =>
+      GameSettings.set({ dayNightSpeed: v }),
+    ));
+    displaySection.appendChild(this.createSlider('Time of Day', g.timeOfDay, 0, 100, '%', (v) =>
+      GameSettings.set({ timeOfDay: v }),
+    ));
+    displaySection.appendChild(this.createSlider('Intensity', g.dayNightIntensity ?? 100, 0, 200, '%', (v) =>
+      GameSettings.set({ dayNightIntensity: v }),
+    ));
+    const timeLabel = document.createElement('div');
+    timeLabel.style.cssText = `font-size: 11px; color: rgba(212,175,55,0.7); margin-top: -8px; margin-bottom: 12px;`;
+    timeLabel.textContent = 'Custom Quickplay only. 0=midnight, 25=6am, 50=noon, 75=6pm (when paused)';
+    displaySection.appendChild(timeLabel);
+    displayPanel.appendChild(displaySection);
+    displayPanel.style.display = 'none';
+    this.panels.display = displayPanel;
+    contentWrap.appendChild(displayPanel);
+
     this.overlay.appendChild(contentWrap);
 
     const backBtn = this.createButton('BACK');
@@ -182,7 +214,7 @@ export class SettingsMenu {
   }
 
   private showTab(id: SettingsTab): void {
-    for (const tabId of ['controls', 'aim', 'audio', 'gameplay'] as const) {
+    for (const tabId of ['controls', 'aim', 'audio', 'gameplay', 'display'] as const) {
       const panel = this.panels[tabId];
       const tab = this.tabs[tabId];
       const active = tabId === id;
@@ -316,6 +348,26 @@ export class SettingsMenu {
     });
     row.appendChild(lab);
     row.appendChild(select);
+    return row;
+  }
+
+  private createCheckbox(
+    label: string,
+    checked: boolean,
+    onChange: (v: boolean) => void,
+  ): HTMLDivElement {
+    const row = document.createElement('div');
+    row.style.cssText = `display: flex; align-items: center; gap: 12px; margin-bottom: 12px; min-width: 260px;`;
+    const lab = document.createElement('label');
+    lab.textContent = label;
+    lab.style.cssText = `width: 140px; font-size: 12px; letter-spacing: 1px;`;
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = checked;
+    input.style.cssText = `cursor: pointer; width: 18px; height: 18px; accent-color: #d4af37;`;
+    input.addEventListener('change', () => onChange(input.checked));
+    row.appendChild(lab);
+    row.appendChild(input);
     return row;
   }
 

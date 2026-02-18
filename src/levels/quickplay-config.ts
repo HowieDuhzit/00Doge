@@ -15,6 +15,14 @@ export interface QuickplayConfig {
   hdri?: string;
   /** Skybox image for background. Default: skybox.jpg */
   skybox?: string;
+  /** Day skybox for day/night cycling. When set with nightSkybox, these JPGs are used for the visible sky (HDRI only for lighting). */
+  daySkybox?: string;
+  /** Night skybox for day/night cycling. */
+  nightSkybox?: string;
+  /** Skybox rotation offset 0–1. Add to time to align sky with sun. Try 0.5 if sun/sky mismatch. */
+  skyboxRotationOffset?: number;
+  /** Scale factor for sky dome meshes in GLB. Larger = further horizon. Default: 5 */
+  skyDomeScale?: number;
   /** Presets for time of day or other variants (e.g. day, night, sunset). */
   presets?: Record<string, QuickplayPreset>;
   /** Active preset name. Uses presets[preset] if set. */
@@ -29,6 +37,13 @@ export interface QuickplayResolvedConfig {
   environment: string;
   hdri: string;
   skybox: string;
+  skyDomeScale: number;
+  /** Day skybox for day/night cycling. If set with nightSkybox, sky rotates between them. */
+  daySkybox?: string;
+  /** Night skybox for day/night cycling. */
+  nightSkybox?: string;
+  /** Skybox rotation offset 0–1. */
+  skyboxRotationOffset: number;
 }
 
 /**
@@ -45,6 +60,8 @@ export async function loadQuickplayConfig(
     environment: DEFAULT_ENVIRONMENT,
     hdri: DEFAULT_HDRI,
     skybox: DEFAULT_SKYBOX,
+    skyDomeScale: 5,
+    skyboxRotationOffset: 0,
   };
 
   try {
@@ -65,10 +82,26 @@ export async function loadQuickplayConfig(
       if (p.skybox) skybox = p.skybox;
     }
 
+    // Day/night skybox URLs for rotating skyboxes (top-level or from presets)
+    let daySkybox: string | undefined = raw.daySkybox;
+    let nightSkybox: string | undefined = raw.nightSkybox;
+    if (!daySkybox || !nightSkybox) {
+      const dayPreset = raw.presets?.day;
+      const nightPreset = raw.presets?.night;
+      if (dayPreset?.skybox && nightPreset?.skybox) {
+        daySkybox = dayPreset.skybox;
+        nightSkybox = nightPreset.skybox;
+      }
+    }
+
     return {
       environment: raw.environment ?? defaults.environment,
       hdri,
       skybox,
+      skyDomeScale: typeof raw.skyDomeScale === 'number' ? raw.skyDomeScale : defaults.skyDomeScale,
+      daySkybox,
+      nightSkybox,
+      skyboxRotationOffset: Math.max(0, Math.min(1, raw.skyboxRotationOffset ?? 0)),
     };
   } catch {
     return defaults;

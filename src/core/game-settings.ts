@@ -31,6 +31,11 @@ export interface GameSettingsValues {
   aiFovScale: number;          // 50–150% (wider = more peripheral vision)
   aiHearingScale: number;      // 50–200% (gunshot/footstep range)
   aiGameStartGrace: number;    // 0–5 s before any enemy can target player
+  // Day/night cycle (custom quickplay)
+  dayNightCycle: boolean;      // enable cycle
+  dayNightSpeed: number;       // 0=paused, 100=~24min per day, 200=~12min
+  timeOfDay: number;           // 0–100, manual time when paused (0=midnight, 50=noon)
+  dayNightIntensity: number;   // 0–200, sun/sky intensity multiplier (100=1.0)
 }
 
 const DEFAULTS: GameSettingsValues = {
@@ -54,6 +59,10 @@ const DEFAULTS: GameSettingsValues = {
   aiFovScale: 100,             // 100%
   aiHearingScale: 100,         // 100%
   aiGameStartGrace: 200,       // 2.0s (stored as 0–100 → 0–5s)
+  dayNightCycle: true,
+  dayNightSpeed: 100,          // ~24 min per full day
+  timeOfDay: 30,               // 7:12am default
+  dayNightIntensity: 100,      // 1.0x
 };
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -103,6 +112,10 @@ function load(): GameSettingsValues {
         aiFovScale: clamp(parsed.aiFovScale ?? DEFAULTS.aiFovScale, 50, 150),
         aiHearingScale: clamp(parsed.aiHearingScale ?? DEFAULTS.aiHearingScale, 50, 200),
         aiGameStartGrace: clamp(parsed.aiGameStartGrace ?? DEFAULTS.aiGameStartGrace, 0, 100),
+        dayNightCycle: parsed.dayNightCycle ?? DEFAULTS.dayNightCycle,
+        dayNightSpeed: clamp(parsed.dayNightSpeed ?? DEFAULTS.dayNightSpeed, 0, 200),
+        timeOfDay: clamp(parsed.timeOfDay ?? DEFAULTS.timeOfDay, 0, 100),
+        dayNightIntensity: clamp(parsed.dayNightIntensity ?? DEFAULTS.dayNightIntensity, 0, 200),
       };
     }
   } catch (_) {}
@@ -137,6 +150,10 @@ export const GameSettings = {
     if (values.aiFovScale !== undefined) cache.aiFovScale = clamp(values.aiFovScale, 50, 150);
     if (values.aiHearingScale !== undefined) cache.aiHearingScale = clamp(values.aiHearingScale, 50, 200);
     if (values.aiGameStartGrace !== undefined) cache.aiGameStartGrace = clamp(values.aiGameStartGrace, 0, 100);
+    if (values.dayNightCycle !== undefined) cache.dayNightCycle = values.dayNightCycle;
+    if (values.dayNightSpeed !== undefined) cache.dayNightSpeed = clamp(values.dayNightSpeed, 0, 200);
+    if (values.timeOfDay !== undefined) cache.timeOfDay = clamp(values.timeOfDay, 0, 100);
+    if (values.dayNightIntensity !== undefined) cache.dayNightIntensity = clamp(values.dayNightIntensity, 0, 200);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cache));
     } catch (_) {}
@@ -215,5 +232,17 @@ export const GameSettings = {
   },
   getAIGameStartGrace(): number {
     return (cache.aiGameStartGrace / 100) * 5;
+  },
+  getDayNightCycle(): boolean {
+    return cache.dayNightCycle;
+  },
+  getDayNightSpeed(): number {
+    return cache.dayNightSpeed / 100; // 0–2x
+  },
+  getTimeOfDay(): number {
+    return cache.timeOfDay / 100; // 0–1
+  },
+  getDayNightIntensity(): number {
+    return cache.dayNightIntensity / 100; // 0–2 (100 = 1.0)
   },
 };

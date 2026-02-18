@@ -59,6 +59,7 @@ import type { NetworkManager } from './network/network-manager';
 import { RemotePlayerManager } from './player/remote-player-manager';
 import { NetworkConfig } from './network/network-config';
 import { GameSettings } from './core/game-settings';
+import { getSunState, getSkyboxMode } from './core/day-night-cycle';
 
 const PHYSICS_STEP = 1 / 60;
 
@@ -145,6 +146,16 @@ export class Game {
   private customTerrainRaycaster: { raycaster: THREE.Raycaster; meshes: THREE.Mesh[]; down: THREE.Vector3; origin: THREE.Vector3 } | null = null;
   /** Bbox center for prop layout across full terrain (custom quickplay). */
   private customSpawnCenter: { x: number; z: number } | null = null;
+  /** Day/night cycle (custom quickplay). */
+  private dayNightTime = 0.3;
+  private dayNightSun: THREE.DirectionalLight | null = null;
+  private dayNightHemi: THREE.HemisphereLight | null = null;
+  /** Day/night skybox textures for rotating skyboxes. */
+  private daySkyTexture: THREE.Texture | null = null;
+  private nightSkyTexture: THREE.Texture | null = null;
+  private skyboxRotationOffset = 0;
+  /** Rotating sky sphere (when using day/night skyboxes). Rotates with sun. */
+  private skySphere: THREE.Mesh | null = null;
   private missionComplete = false;
   private missionElapsed = 0;
   private levelName = '';
@@ -157,6 +168,7 @@ export class Game {
 
   // Reusable vectors to avoid per-frame heap allocations
   private readonly _playerVec = new THREE.Vector3();
+  private readonly _skySpherePos = new THREE.Vector3();
   private readonly _aimAssistLookDir = new THREE.Vector3();
   private readonly _aimAssistToTarget = new THREE.Vector3();
 
@@ -1251,6 +1263,42 @@ export class Game {
     // Light pool: auto-release expired pooled lights (muzzle flashes, etc.)
     globalLightPool.update();
 
+    // Day/night cycle (custom quickplay)
+    if (this.customQuickplay && this.dayNightSun) {
+      if (GameSettings.getDayNightCycle()) {
+        const speed = GameSettings.getDayNightSpeed();
+        // ~1 min per full day at 100%, ~30s at 200%
+        this.dayNightTime += dt * (speed / 60);
+        if (this.dayNightTime >= 1) this.dayNightTime -= 1;
+        if (this.dayNightTime < 0) this.dayNightTime += 1;
+      } else {
+        this.dayNightTime = GameSettings.getTimeOfDay();
+      }
+      const state = getSunState(this.dayNightTime);
+      const intensityMult = GameSettings.getDayNightIntensity();
+      this.dayNightSun.position.copy(state.position);
+      this.dayNightSun.color.copy(state.color);
+      this.dayNightSun.intensity = state.intensity * intensityMult;
+      if (this.dayNightHemi) {
+        this.dayNightHemi.color.copy(state.hemiSkyColor);
+        this.dayNightHemi.groundColor.copy(state.hemiGroundColor);
+        this.dayNightHemi.intensity = state.ambientIntensity * intensityMult;
+      }
+      if (this.scene.background instanceof THREE.Texture) {
+        this.scene.backgroundIntensity = state.backgroundIntensity * intensityMult;
+      }
+      if (this.scene.environment) this.scene.environmentIntensity = state.envIntensity * intensityMult;
+
+      // Rotating sky sphere: switch day/night texture and apply rotation
+      if (this.skySphere && this.daySkyTexture && this.nightSkyTexture) {
+        const mode = getSkyboxMode(this.dayNightTime);
+        const tex = mode === 'day' ? this.daySkyTexture : this.nightSkyTexture;
+        (this.skySphere.material as THREE.MeshBasicMaterial).map = tex;
+        this.skySphere.rotation.y = -(this.dayNightTime + this.skyboxRotationOffset) * Math.PI * 2;
+        this.skySphere.position.copy(this.fpsCamera.camera.getWorldPosition(this._skySpherePos));
+      }
+    }
+
     // Destructible props: debris physics + cleanup
     this.destructibleSystem.update(dt);
 
@@ -1312,6 +1360,10 @@ export class Game {
     this.hud.updateArmor(this.player.armor);
     this.hud.updateGrenades(this.gasGrenadeCount, this.fragGrenadeCount);
     this.hud.updateWeapon(this.weaponManager.currentWeapon);
+    this.hud.updateTimeOfDay(
+      this.customQuickplay && this.dayNightSun ? this.dayNightTime : null,
+    );
+    this.hud.updateCompass(this.fpsCamera.getYRotation());
     // Show ping and kills only in multiplayer
     if (this.networkMode === 'client' && this.networkManager) {
       this.hud.updatePing(this.networkManager.ping);
@@ -1692,7 +1744,9 @@ export class Game {
       );
     }
 
-    const envResult = await loadEnvironmentGLB(glbUrl);
+    const envResult = await loadEnvironmentGLB(glbUrl, {
+      skyDomeScale: config.skyDomeScale,
+    });
 
     let envMap: THREE.Texture | null = null;
     let skyboxTexture: THREE.Texture | null = null;
@@ -1712,19 +1766,123 @@ export class Game {
       }
     }
 
+    // Load day/night skybox pair for rotating skyboxes
+    if (this.daySkyTexture) { this.daySkyTexture.dispose(); this.daySkyTexture = null; }
+    if (this.nightSkyTexture) { this.nightSkyTexture.dispose(); this.nightSkyTexture = null; }
+    if (config.daySkybox && config.nightSkybox) {
+      const dayUrl = `${baseUrl}${config.daySkybox}`;
+      const nightUrl = `${baseUrl}${config.nightSkybox}`;
+      if (await this.checkAssetExists(dayUrl)) {
+        try {
+          this.daySkyTexture = await loadSkyboxImage(dayUrl);
+          this.daySkyTexture.wrapS = THREE.RepeatWrapping;
+          this.daySkyTexture.wrapT = THREE.ClampToEdgeWrapping;
+        } catch {
+          this.daySkyTexture = null;
+        }
+      }
+      if (await this.checkAssetExists(nightUrl)) {
+        try {
+          this.nightSkyTexture = await loadSkyboxImage(nightUrl);
+          this.nightSkyTexture.wrapS = THREE.RepeatWrapping;
+          this.nightSkyTexture.wrapT = THREE.ClampToEdgeWrapping;
+        } catch {
+          this.nightSkyTexture = null;
+        }
+      }
+    }
+    if (!this.daySkyTexture || !this.nightSkyTexture) {
+      this.daySkyTexture = null;
+      this.nightSkyTexture = null;
+    }
+    this.skyboxRotationOffset = config.skyboxRotationOffset ?? 0;
+
+    // Remove old sky sphere if any
+    if (this.skySphere) {
+      this.skySphere.geometry.dispose();
+      (this.skySphere.material as THREE.Material).dispose();
+      this.scene.remove(this.skySphere);
+      this.skySphere = null;
+    }
+
     this.scene.add(envResult.scene);
 
+    // Push camera far plane out for large environments (avoids horizon clipping)
+    this.fpsCamera.camera.far = 2000;
+    this.fpsCamera.camera.updateProjectionMatrix();
+
+    this.dayNightTime = GameSettings.getTimeOfDay();
+    const useSkySphere = this.daySkyTexture && this.nightSkyTexture;
+    const initialBackground = useSkySphere ? undefined : (skyboxTexture ?? undefined);
     if (envMap) {
       this.scene.fog = null;
       applyEnvironment(this.scene, envMap, {
-        backgroundTexture: skyboxTexture ?? undefined,
+        backgroundTexture: initialBackground,
       });
-    } else if (skyboxTexture) {
+    } else if (initialBackground) {
       this.scene.fog = null;
-      this.scene.background = skyboxTexture;
+      this.scene.background = initialBackground;
+    }
+    if (useSkySphere) {
+      this.scene.background = new THREE.Color(0x000000);
+      const geo = new THREE.SphereGeometry(1800, 32, 16);
+      const tex = getSkyboxMode(this.dayNightTime) === 'day' ? this.daySkyTexture! : this.nightSkyTexture!;
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex,
+        side: THREE.BackSide,
+        depthWrite: false,
+      });
+      this.skySphere = new THREE.Mesh(geo, mat);
+      this.skySphere.renderOrder = -1000;
+      this.skySphere.rotation.y = -(this.dayNightTime + this.skyboxRotationOffset) * Math.PI * 2;
+      this.scene.add(this.skySphere);
     }
 
-    // Fallback lights when HDRI not used
+    // Day/night cycle sun + hemisphere (custom quickplay with sky)
+    if (envMap || skyboxTexture || (this.daySkyTexture && this.nightSkyTexture)) {
+      const sun = new THREE.DirectionalLight(0xffffff, 1);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(512, 512);
+      sun.shadow.camera.near = 1;
+      sun.shadow.camera.far = 150;
+      sun.shadow.camera.left = sun.shadow.camera.bottom = -40;
+      sun.shadow.camera.right = sun.shadow.camera.top = 40;
+      this.scene.add(sun);
+      this.scene.add(sun.target);
+      sun.target.position.set(0, 0, 0); // Light points at scene center
+      this.dayNightSun = sun;
+
+      const hemi = new THREE.HemisphereLight(0x87ceeb, 0x3d2817, 0.4);
+      this.scene.add(hemi);
+      this.dayNightHemi = hemi;
+
+      const state = getSunState(this.dayNightTime);
+      const intensityMult = GameSettings.getDayNightIntensity();
+      sun.position.copy(state.position);
+      sun.color.copy(state.color);
+      sun.intensity = state.intensity * intensityMult;
+      hemi.color.copy(state.hemiSkyColor);
+      hemi.groundColor.copy(state.hemiGroundColor);
+      hemi.intensity = state.ambientIntensity * intensityMult;
+      if (this.scene.background && !(this.scene.background instanceof THREE.Texture)) {
+        // backgroundIntensity only applies to texture backgrounds
+      } else if (this.scene.background) {
+        this.scene.backgroundIntensity = state.backgroundIntensity * intensityMult;
+      }
+      if (this.scene.environment) this.scene.environmentIntensity = state.envIntensity * intensityMult;
+      if (this.skySphere && this.daySkyTexture && this.nightSkyTexture) {
+        const mode = getSkyboxMode(this.dayNightTime);
+        const tex = mode === 'day' ? this.daySkyTexture : this.nightSkyTexture;
+        (this.skySphere.material as THREE.MeshBasicMaterial).map = tex;
+        this.skySphere.rotation.y = -(this.dayNightTime + this.skyboxRotationOffset) * Math.PI * 2;
+        this.skySphere.position.copy(this.fpsCamera.camera.getWorldPosition(this._skySpherePos));
+      }
+    } else {
+      this.dayNightSun = null;
+      this.dayNightHemi = null;
+    }
+
+    // Fallback lights when HDRI not used (and no day/night)
     if (!envMap) {
       const ambient = new THREE.AmbientLight(0x404060, 0.6);
       this.scene.add(ambient);

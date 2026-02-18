@@ -237,6 +237,10 @@ scripts/
 2. Define rooms (axis-aligned boxes), doors (proximity or locked), enemies, pickups, objectives, triggers
 3. Load via `loadLevel('/levels/your-level.json')` in `main.ts`
 
+### Creating an Outdoor Map (Custom Arena)
+
+See **docs/OUTDOOR_LEVELS_SETUP.md** for skybox, HDRI, terrain GLB, day/night cycle, and enemy/item placement. Assets go in `public/maps/quickplay/` with `config.json`.
+
 ### Adding Multiplayer Events
 
 1. Define event interface in `src/network/network-events.ts`

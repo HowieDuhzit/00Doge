@@ -16,7 +16,7 @@ export class FPSCamera {
       DEFAULT_FOV,
       window.innerWidth / window.innerHeight,
       0.1,
-      200,
+      2000,
     );
     window.addEventListener('resize', this.onResize);
   }

@@ -21,6 +21,15 @@ const gltfLoader = new GLTFLoader();
 /** If player falls through terrain, try toggling this to flip triangle winding for Rapier. */
 const TRIMESH_FLIP_WINDING = false;
 
+
+/** Name substrings that identify sky dome / background meshes to scale out. */
+const SKY_DOME_NAMES = ['sky', 'skydome', 'dome', 'background', 'environment'];
+
+function isSkyDomeMesh(name: string): boolean {
+  const n = name.toLowerCase();
+  return SKY_DOME_NAMES.some((k) => n.includes(k));
+}
+
 /**
  * Extract vertices and indices from BufferGeometry, transformed by matrix.
  * Handles both indexed and non-indexed geometry.
@@ -113,8 +122,13 @@ function combineColliderData(
  * Traverses all meshes, enables shadows, and builds combined trimesh data.
  * If meshes named "collision" or "collider" exist, only those are used for physics;
  * otherwise all meshes are used.
+ * Sky dome meshes (names containing sky/dome/background) are scaled by skyDomeScale
+ * to push the horizon further out for large environments.
  */
-export function loadEnvironmentGLB(url: string): Promise<LoadedEnvironment> {
+export function loadEnvironmentGLB(
+  url: string,
+  options?: { skyDomeScale?: number },
+): Promise<LoadedEnvironment> {
   return new Promise((resolve, reject) => {
     gltfLoader.load(
       url,
@@ -172,6 +186,16 @@ export function loadEnvironmentGLB(url: string): Promise<LoadedEnvironment> {
 
         const colliderData =
           colliderDataList.length > 0 ? combineColliderData(colliderDataList, TRIMESH_FLIP_WINDING) : null;
+
+        // Scale sky dome meshes outward so horizon stays beyond distant terrain
+        const skyDomeScale = options?.skyDomeScale ?? 5;
+        if (skyDomeScale > 1) {
+          scene.traverse((obj) => {
+            if (isSkyDomeMesh(obj.name)) {
+              obj.scale.multiplyScalar(skyDomeScale);
+            }
+          });
+        }
 
         resolve({ scene, colliderData });
       },

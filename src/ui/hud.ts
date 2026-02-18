@@ -9,6 +9,10 @@ export class HUD {
   private grenadeEl: HTMLElement;
   private pingEl: HTMLElement;
   private killsEl: HTMLElement;
+  private timeOfDayEl: HTMLElement;
+  private compassEl: HTMLElement;
+  private compassStripEl: HTMLElement;
+  private compassDegreesEl: HTMLElement;
 
   private crosshairFlashTimer = 0;
 
@@ -23,12 +27,22 @@ export class HUD {
     this.armorEl.id = 'armor-display';
     this.armorEl.style.cssText = `
       position: absolute;
-      bottom: 20px;
-      left: 120px;
-      font-size: 18px;
+      bottom: 24px;
+      left: 145px;
+      font-size: 20px;
       font-family: 'Courier New', monospace;
-      color: #fff;
+      color: #66aaff;
+      font-weight: bold;
       pointer-events: none;
+      text-shadow: 0 0 8px rgba(100,150,255,0.5);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(100,150,255,0.25);
+      border-radius: 4px;
+      visibility: hidden;
     `;
     this.hudEl.appendChild(this.armorEl);
 
@@ -75,6 +89,101 @@ export class HUD {
       visibility: hidden;
     `;
     this.hudEl.appendChild(this.killsEl);
+
+    // Time of day (custom quickplay)
+    this.timeOfDayEl = document.createElement('div');
+    this.timeOfDayEl.id = 'time-of-day-display';
+    this.timeOfDayEl.style.cssText = `
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      font-size: 24px;
+      font-weight: bold;
+      font-family: 'Courier New', monospace;
+      color: #d4af37;
+      text-shadow: 0 0 8px rgba(212,175,55,0.6), 0 2px 4px rgba(0,0,0,0.9);
+      pointer-events: none;
+      visibility: hidden;
+      letter-spacing: 2px;
+      padding: 4px 10px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(212,175,55,0.3);
+      border-radius: 4px;
+    `;
+    this.hudEl.appendChild(this.timeOfDayEl);
+
+    // Compass (top center) — N E S W strip + degrees. Slides horizontally (no rotation = no tilt)
+    this.compassEl = document.createElement('div');
+    this.compassEl.id = 'compass';
+    this.compassEl.style.cssText = `
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      height: 36px;
+      pointer-events: none;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(212,175,55,0.35);
+      border-radius: 4px;
+    `;
+    this.compassStripEl = document.createElement('div');
+    this.compassStripEl.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: bold;
+      font-family: 'Courier New', monospace;
+      color: rgba(255,255,255,0.9);
+      text-shadow: 0 0 6px rgba(0,0,0,0.9);
+      flex-shrink: 0;
+    `;
+    // Each cardinal 50px, order W N E S (repeated). Heading 0°=N, 90°=E, 180°=S, 270°=W.
+    const cardinals = ['W', 'N', 'E', 'S'];
+    const span = (c: string) => `<span style="min-width:50px;text-align:center;${c === 'N' ? 'color:#d4af37' : ''}">${c}</span>`;
+    this.compassStripEl.innerHTML = [...cardinals, ...cardinals, ...cardinals].map(span).join('');
+    this.compassEl.appendChild(this.compassStripEl);
+    this.compassDegreesEl = document.createElement('div');
+    this.compassDegreesEl.style.cssText = `
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: #d4af37;
+      pointer-events: none;
+      bottom: 4px;
+    `;
+    this.compassEl.appendChild(this.compassDegreesEl);
+    this.hudEl.appendChild(this.compassEl);
+  }
+
+  /** Update compass heading. yaw in radians. Slides strip + shows degrees (no rotation = no tilt). */
+  updateCompass(yaw: number): void {
+    // Game: +X=North, +Z=East. Camera yaw=0 faces -Z (West). Heading 0°=N, 90°=E, 180°=S, 270°=W.
+    const deg = (((-Math.PI / 2 - yaw) * 180 / Math.PI) % 360 + 360) % 360;
+    const seg = 50; // px per cardinal (90°)
+    const base = 25; // offset to center N when heading=0
+    const tx = base - (deg / 90) * seg;
+    this.compassStripEl.style.transform = `translateX(${tx}px)`;
+    this.compassDegreesEl.textContent = `${Math.round(deg)}°`;
+  }
+
+  /** Update time of day display (HH:MM). Pass null to hide. */
+  updateTimeOfDay(t: number | null): void {
+    if (t === null) {
+      this.timeOfDayEl.style.visibility = 'hidden';
+      return;
+    }
+    this.timeOfDayEl.style.visibility = 'visible';
+    const hour24 = ((t % 1) + 1) % 1 * 24;
+    const h = Math.floor(hour24) % 24;
+    const m = Math.floor((hour24 % 1) * 60);
+    this.timeOfDayEl.textContent = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
   }
 
   /** Update kills display (multiplayer). Pass null to hide. */
@@ -118,9 +227,11 @@ export class HUD {
 
   updateArmor(armor: number): void {
     if (armor > 0) {
-      this.armorEl.innerHTML = `<span style="color: #66aaff;">&#9632;</span> <span>${Math.ceil(armor)}</span>`;
+      this.armorEl.innerHTML = `<span style="color: #66aaff; font-size: 18px;">&#9632;</span><span>${Math.ceil(armor)}</span>`;
+      this.armorEl.style.visibility = 'visible';
     } else {
       this.armorEl.innerHTML = '';
+      this.armorEl.style.visibility = 'hidden';
     }
   }
 

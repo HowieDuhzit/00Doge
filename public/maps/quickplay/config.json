@@ -1,16 +1,13 @@
 {
   "environment": "environment.glb",
   "hdri": "environment.hdr",
-  "skybox": "skybox.jpg",
+  "skybox": "skybox.webp",
+  "daySkybox": "skybox.webp",
+  "nightSkybox": "skybox_night.jpg",
+  "skyboxRotationOffset": 0.1,
   "presets": {
-    "day": {
-      "hdri": "environment.hdr",
-      "skybox": "skybox.jpg"
-    },
-    "night": {
-      "hdri": "environment_night.hdr",
-      "skybox": "skybox_night.jpg"
-    }
+    "day": { "hdri": "environment.hdr", "skybox": "skybox.webp" },
+    "night": { "hdri": "environment.hdr", "skybox": "skybox_night.jpg" }
   },
   "preset": "day"
 }

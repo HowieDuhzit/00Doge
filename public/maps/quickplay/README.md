@@ -1,43 +1,19 @@
 # Custom Quickplay Arena Assets
 
-Place your assets here for the "QUICK PLAY — CUSTOM ARENA" mode.
+Place your assets here for the **QUICK PLAY — CUSTOM ARENA** mode (outdoor maps with skybox, HDRI, day/night cycle).
 
-## Asset Names (configurable)
+> **Full setup guide**: See **[docs/OUTDOOR_LEVELS_SETUP.md](../../docs/OUTDOOR_LEVELS_SETUP.md)** for complete documentation on outdoor levels, skybox, day/night, terrain collision, and enemy/item placement.
 
-Use **config.json** to customize filenames. If omitted, defaults apply:
+## Quick Reference
 
-| Asset    | Default           | Description                                        |
-|----------|-------------------|----------------------------------------------------|
-| environment | environment.glb | Ground, walls, static geometry (required)          |
-| hdri     | environment.hdr   | Equirectangular HDR for lighting and reflections   |
-| skybox   | skybox.jpg        | LDR image for visible sky background              |
+| Asset        | Default        | Description                                  |
+|--------------|----------------|----------------------------------------------|
+| environment  | environment.glb | Terrain, geometry (required)                 |
+| hdri         | environment.hdr | Equirectangular HDR for lighting              |
+| skybox       | skybox.jpg      | LDR sky background                            |
+| daySkybox    | —               | Day panorama (for day/night cycle)            |
+| nightSkybox  | —               | Night panorama (for day/night cycle)         |
 
-## config.json
-
-```json
-{
-  "environment": "environment.glb",
-  "hdri": "environment.hdr",
-  "skybox": "skybox.jpg",
-  "presets": {
-    "day": { "hdri": "environment.hdr", "skybox": "skybox.jpg" },
-    "night": { "hdri": "environment_night.hdr", "skybox": "skybox_night.jpg" }
-  },
-  "preset": "day"
-}
-```
-
-- Set **preset** to switch time-of-day variants (day, night, sunset, etc.).
-- Omit config.json to use defaults; omit fields to use that field’s default.
-
-## Collision (Trimesh)
-
-The GLB is used for **geometric trimesh colliders** — triangle mesh collision is derived from all visible meshes. This matches complex terrain (hills, rocks, tracks) instead of a flat box.
-
-- **Dedicated collision mesh**: Name a mesh `collision` or `collider` in your 3D editor; only that mesh will be used for physics. Use a low-poly version for better performance.
-- **Triangle winding**: If the player falls through terrain, edit `src/levels/custom-environment-loader.ts` and set `TRIMESH_FLIP_WINDING = true`.
-- **Rapier contact skin**: A small contact buffer (0.08) improves trimesh reliability.
-
-## Spawning
-
-The game spawns crates, barrels, weapons, and enemies at the terrain’s vertical midpoint. Origin (0, 0, 0) is used for the center; ensure your model is reasonably centered.
+- **config.json**: Define asset names, presets, `skyboxRotationOffset`, `skyDomeScale`. Omit to use defaults.
+- **Collision**: Trimesh from GLB. Name a mesh `collision` or `collider` for dedicated physics mesh.
+- **Player spawn**: Press **F8** to save your current position.

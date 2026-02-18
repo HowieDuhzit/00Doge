@@ -38,6 +38,7 @@ See **[DEPLOYMENT_QUICKSTART.md](./DEPLOYMENT_QUICKSTART.md)** for deploying to 
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Full deployment guide
 - **[DEPLOYMENT_QUICKSTART.md](./DEPLOYMENT_QUICKSTART.md)** - Quick Coolify setup
 - **[NORMAL_MAPPING_STANDARDS.md](./docs/NORMAL_MAPPING_STANDARDS.md)** - Required normal-mapping policy for textures, levels, and weapons
+- **[OUTDOOR_LEVELS_SETUP.md](./docs/OUTDOOR_LEVELS_SETUP.md)** - Setting up outdoor maps (skybox, HDRI, day/night, terrain, enemies)
 
 ## 🐳 Docker
 
