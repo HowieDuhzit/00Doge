@@ -58,6 +58,7 @@ import {
 } from './levels/procedural-textures';
 import type { NetworkManager } from './network/network-manager';
 import { RemotePlayerManager } from './player/remote-player-manager';
+import { VehicleManager } from './vehicles/vehicle-manager';
 import { NetworkConfig } from './network/network-config';
 import { GameSettings } from './core/game-settings';
 import { getSunState, getSkyboxMode } from './core/day-night-cycle';
@@ -203,6 +204,7 @@ export class Game {
   // Multiplayer networking
   private networkMode: 'local' | 'client';
   private networkManager: NetworkManager | null = null;
+  private vehicleManager: VehicleManager | null = null;
   /** Map we joined (for filtering snapshots from wrong rooms) */
   private multiplayerMapId: 'crossfire' | 'wasteland' | 'custom' | null = null;
   private _lastMapIdWarnTime = 0;
@@ -313,6 +315,9 @@ export class Game {
 
     // Destructible system (crates, barrels)
     this.destructibleSystem = new DestructibleSystem(this.scene, this.physics);
+
+    // Vehicle manager
+    this.vehicleManager = new VehicleManager(this.scene, this.physics);
 
     // Pickup system
     this.pickupSystem = new PickupSystem(this.scene);
@@ -599,6 +604,71 @@ export class Game {
       );
       this.nameTagManager = new NameTagManager(this.fpsCamera.camera);
 
+      // Vehicle manager — set local player ID and wire network callbacks
+      if (this.vehicleManager) {
+        const vm = this.vehicleManager;
+        vm.setLocalPlayerId(this.networkManager.playerId ?? 'local');
+
+        // Hook up getGroundHeight
+        if (this.getGroundHeight) {
+          vm.getGroundHeight = this.getGroundHeight;
+        }
+
+        // Send vehicle state to server (driver only)
+        vm.onSendVehicleState = (state) => {
+          this.networkManager?.sendVehicleState(state);
+        };
+
+        // Send occupancy events
+        vm.onSendVehicleOccupancy = (event) => {
+          this.networkManager?.sendVehicleOccupancy(event);
+        };
+
+        // Send gun fire from gunner seat
+        vm.onVehicleGunFire = (vehicleId, origin, dir) => {
+          if (!this.networkManager?.playerId) return;
+
+          // Raycast for hit detection
+          const hit = this.physics.castRay(
+            origin.x, origin.y, origin.z,
+            dir.x, dir.y, dir.z,
+            80,
+            this.player.getCollider(),
+          );
+
+          let hitPlayerId: string | undefined;
+          let hitPoint: { x: number; y: number; z: number } | undefined;
+          if (hit) {
+            const hitRemotePlayer = this.remotePlayerManager?.getPlayerByCollider(hit.collider);
+            if (hitRemotePlayer) {
+              hitPlayerId = hitRemotePlayer.id;
+              hitPoint = { x: hit.point.x, y: hit.point.y, z: hit.point.z };
+              this.hitMarker.show();
+            }
+          }
+
+          this.networkManager?.sendVehicleGunFire({
+            vehicleId,
+            playerId: this.networkManager.playerId!,
+            origin: { x: origin.x, y: origin.y, z: origin.z },
+            direction: { x: dir.x, y: dir.y, z: dir.z },
+            hitPlayerId,
+            hitPoint,
+            timestamp: performance.now(),
+          });
+        };
+
+        // Handle vehicle damage from server
+        this.networkManager.onVehicleDamaged = (event) => {
+          vm.applyVehicleDamage(event.vehicleId, event.damage);
+        };
+
+        // Handle vehicle destroyed
+        this.networkManager.onVehicleDestroyed = (event) => {
+          vm.removeVehicle(event.vehicleId);
+        };
+      }
+
       // Handle game state snapshots from server.
       // Always process snapshots so remote players remain visible even if the live server
       // has a stale mapId (old deploy, server needs restart). The terrain-snap logic in
@@ -622,6 +692,10 @@ export class Game {
         }
         this.updateScoreboardFromSnapshot(snapshot);
         this.syncDestroyedDestructibles(snapshot.destroyedDestructibles);
+        // Update remote vehicles from snapshot
+        if (this.vehicleManager && snapshot.vehicles) {
+          this.vehicleManager.updateFromSnapshot(snapshot);
+        }
       };
 
       // Handle weapon fire events (Phase 4: animations + spatial audio)
@@ -1316,10 +1390,41 @@ export class Game {
     }
 
     // Update camera from mouse input (scales sensitivity by FOV when scoped)
-    this.fpsCamera.update(this.input, aimAssistDelta, lookScale);
+    // Suppress camera updates when player is in a vehicle (vehicle manager overrides)
+    const playerInVehicle = this.vehicleManager?.isLocalPlayerInVehicle() ?? false;
+    if (!playerInVehicle) {
+      this.fpsCamera.update(this.input, aimAssistDelta, lookScale);
+    }
 
-    // Weapons (before physics, so fire input is responsive)
-    this.weaponManager.update(this.input, dt);
+    // Weapons (before physics, so fire input is responsive) — disabled in vehicle
+    if (!playerInVehicle) {
+      this.weaponManager.update(this.input, dt);
+    }
+
+    // Vehicle update (input → physics) — must run before physics step
+    if (this.vehicleManager) {
+      const playerPos = this.player.getPosition();
+      const playerVec = new THREE.Vector3(playerPos.x, playerPos.y, playerPos.z);
+      this.vehicleManager.getGroundHeight = this.getGroundHeight;
+      this.vehicleManager.update(
+        dt,
+        this.input,
+        this.fpsCamera,
+        playerVec,
+        this.networkMode === 'client',
+      );
+
+      // When local player is in a vehicle, keep their physics capsule at vehicle seat
+      // so raycasts / collision queries remain valid
+      if (playerInVehicle) {
+        const localVehicle = this.vehicleManager.getLocalVehicle();
+        const localSeat = this.vehicleManager.getLocalSeat();
+        if (localVehicle && localSeat) {
+          const seatPos = localVehicle.getSeatWorldPosition(localSeat);
+          this.player.setPosition(seatPos.x, seatPos.y, seatPos.z);
+        }
+      }
+    }
 
     // Fixed-step physics
     this.physicsAccumulator += dt;
@@ -1572,6 +1677,15 @@ export class Game {
           isMoving,
           timestamp: now,
         });
+
+        // Send vehicle state if we're the driver
+        if (this.vehicleManager) {
+          const vehicleState = this.vehicleManager.sendStateIfDriver();
+          if (vehicleState) {
+            this.networkManager.sendVehicleState(vehicleState);
+          }
+        }
+
         this.lastNetworkUpdate = now;
       }
 
@@ -2316,6 +2430,44 @@ export class Game {
 
     this.customGroundLevel = groundLevel;
     this.customSpawnCenter = { x: layoutCenterX, z: layoutCenterZ };
+
+    // Spawn vehicles (Warthog) in custom quickplay / multiplayer arena
+    // Only spawn in single-player custom quickplay or when it's the custom multiplayer map.
+    // In multiplayer, the server sends vehicle state via snapshots; we just need local init too.
+    if (this.vehicleManager && !this.editorMode) {
+      this.vehicleManager.getGroundHeight = this.getGroundHeight;
+
+      // Parse vehicles from config if defined, otherwise use default Warthog spawn
+      const vehicleDefs = (config as any).vehicles as Array<{ type: string; x: number; z: number; rotation?: number }> | undefined;
+      if (vehicleDefs?.length) {
+        for (const vd of vehicleDefs) {
+          if (vd.type === 'warthog') {
+            this.vehicleManager.spawnVehicle({
+              type: 'warthog',
+              x: layoutCenterX + vd.x,
+              z: layoutCenterZ + vd.z,
+              rotation: vd.rotation,
+            });
+          }
+        }
+      } else {
+        // Default: one Warthog near arena center
+        const vx = layoutCenterX + 5;
+        const vz = layoutCenterZ - 2;
+        this.vehicleManager.spawnVehicle({
+          id: 'warthog_0',
+          type: 'warthog',
+          x: vx,
+          z: vz,
+          rotation: 0,
+        });
+      }
+
+      // In multiplayer, also set local player ID (may not be set yet if constructor ran before connect)
+      if (this.networkMode === 'client' && this.networkManager?.playerId) {
+        this.vehicleManager.setLocalPlayerId(this.networkManager.playerId);
+      }
+    }
 
     if (this.editorMode && this.customQuickplayPlacement) {
       this.editorPickups = (this.customQuickplayPlacement.pickups ?? []).map((p) => ({

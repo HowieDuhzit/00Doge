@@ -11,7 +11,30 @@ import type {
   FlashlightToggleEvent,
   DestructibleDestroyedEvent,
   GameOverEvent,
+  VehicleStateUpdate,
+  VehicleOccupancyEvent,
+  VehicleGunFireEvent,
 } from '../src/network/network-events.js';
+import type { VehicleNetState, VehicleOccupancy } from '../src/vehicles/vehicle-types.js';
+
+// ─── Server-side vehicle state ────────────────────────────────────────────────
+
+interface ServerVehicleState {
+  id: string;
+  position: { x: number; y: number; z: number };
+  yaw: number;
+  roll: number;
+  pitch: number;
+  velocityX: number;
+  velocityZ: number;
+  turretYaw: number;
+  turretPitch: number;
+  occupancy: VehicleOccupancy;
+  health: number;
+  maxHealth: number;
+  lastUpdateTime: number;
+  driverId: string | null;
+}
 import { getSpawnPointsForMap, type MultiplayerMapId } from '../src/levels/multiplayer-arena.js';
 
 /**
@@ -46,11 +69,22 @@ export class GameRoom {
   // Gas damage rate limit: ignore if same player sent < 100ms ago
   private lastGasDamageTime: Map<string, number> = new Map();
 
+  // ── Vehicles ──────────────────────────────────────────────────────────────────
+  private vehicles: Map<string, ServerVehicleState> = new Map();
+  private readonly VEHICLE_MAX_SPEED = 28; // units/sec (generous for anti-cheat)
+  private readonly VEHICLE_GUN_FIRE_RATE = 6; // shots/sec
+  private lastVehicleGunFireTime: Map<string, number> = new Map();
+  private vehicleGunDamage = 18;
+  private vehicleGunRange = 80;
+
   // Enemy damage rate limit: ignore if same player sent < 150ms ago
   private lastEnemyDamageTime: Map<string, number> = new Map();
 
   /** Map selected by first joiner. Used for spawn point selection. */
   private currentMapId: MultiplayerMapId = 'crossfire';
+
+  /** Warthog spawn definitions — initialized when first player joins 'custom' map. */
+  private vehicleInitialized = false;
 
   /**
    * Callback for broadcasting game state to all clients.
@@ -82,6 +116,11 @@ export class GameRoom {
     playerState.position = { ...spawnPoint };
     this.players.set(id, playerState);
     console.log(`[GameRoom] Player ${username} (${id}) joined. Total players: ${this.players.size}`);
+
+    // Initialize vehicles for custom map
+    if (this.currentMapId === 'custom') {
+      this.initVehiclesForMap();
+    }
   }
 
   /**
@@ -116,7 +155,206 @@ export class GameRoom {
     this.destroyedPropIds.clear();
     this.gameOver = false;
     this.currentMapId = 'crossfire'; // Reset so next joiner's mapId takes effect
+    this.vehicles.clear();
+    this.vehicleInitialized = false;
+    this.lastVehicleGunFireTime.clear();
     console.log('[GameRoom] Room empty — level state reset for next session');
+  }
+
+  /**
+   * Initialize vehicles for the 'custom' map (Warthog on the quickplay arena).
+   */
+  private initVehiclesForMap(): void {
+    if (this.vehicleInitialized) return;
+    if (this.currentMapId !== 'custom') return;
+    this.vehicleInitialized = true;
+
+    // Spawn one Warthog near the center of the arena
+    const warthogId = 'warthog_0';
+    this.vehicles.set(warthogId, {
+      id: warthogId,
+      position: { x: 5, y: 12.5, z: -2 },
+      yaw: 0,
+      roll: 0,
+      pitch: 0,
+      velocityX: 0,
+      velocityZ: 0,
+      turretYaw: 0,
+      turretPitch: 0,
+      occupancy: { driver: null, passenger1: null, passenger2: null, passenger3: null, gunner: null },
+      health: 500,
+      maxHealth: 500,
+      lastUpdateTime: Date.now(),
+      driverId: null,
+    });
+    console.log(`[GameRoom] Spawned warthog ${warthogId} for map: ${this.currentMapId}`);
+  }
+
+  /**
+   * Handle vehicle state update from driver client.
+   */
+  handleVehicleStateUpdate(event: VehicleStateUpdate): void {
+    const driver = this.players.get(event.playerId);
+    if (!driver) return;
+
+    const vehicle = this.vehicles.get(event.vehicleId);
+    if (!vehicle) return;
+
+    // Anti-cheat: Validate that this player is the driver
+    if (vehicle.driverId && vehicle.driverId !== event.playerId) {
+      console.warn(`[GameRoom] Non-driver ${driver.username} sent vehicle state for ${event.vehicleId}`);
+      return;
+    }
+
+    // Anti-cheat: Validate speed
+    const now = Date.now();
+    const timeDelta = (now - vehicle.lastUpdateTime) / 1000;
+    if (timeDelta > 0.016) {
+      const dx = event.position.x - vehicle.position.x;
+      const dz = event.position.z - vehicle.position.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      const speed = distance / timeDelta;
+      if (speed > this.VEHICLE_MAX_SPEED) {
+        console.warn(`[GameRoom] Rejected vehicle speedhack from ${driver.username}: ${speed.toFixed(1)} u/s`);
+        return;
+      }
+    }
+
+    vehicle.position = event.position;
+    vehicle.yaw = event.yaw;
+    vehicle.roll = event.roll;
+    vehicle.pitch = event.pitch;
+    vehicle.velocityX = event.velocityX;
+    vehicle.velocityZ = event.velocityZ;
+    vehicle.turretYaw = event.turretYaw;
+    vehicle.turretPitch = event.turretPitch;
+    vehicle.occupancy = event.occupancy;
+    vehicle.health = Math.min(event.health, vehicle.maxHealth);
+    vehicle.lastUpdateTime = now;
+  }
+
+  /**
+   * Handle vehicle occupancy change (enter/exit).
+   */
+  handleVehicleOccupancy(event: VehicleOccupancyEvent): void {
+    const player = this.players.get(event.playerId);
+    if (!player) return;
+
+    const vehicle = this.vehicles.get(event.vehicleId);
+    if (!vehicle) return;
+
+    if (event.action === 'enter') {
+      const seat = event.seat as keyof typeof vehicle.occupancy;
+      if (seat in vehicle.occupancy && vehicle.occupancy[seat] === null) {
+        vehicle.occupancy[seat] = event.playerId;
+        if (seat === 'driver') {
+          vehicle.driverId = event.playerId;
+        }
+        console.log(`[GameRoom] ${player.username} entered ${event.vehicleId} seat=${seat}`);
+        this.onBroadcast?.('vehicle:occupancy', event);
+      }
+    } else {
+      // Exit
+      for (const seat of Object.keys(vehicle.occupancy) as Array<keyof typeof vehicle.occupancy>) {
+        if (vehicle.occupancy[seat] === event.playerId) {
+          vehicle.occupancy[seat] = null;
+          if (seat === 'driver') {
+            vehicle.driverId = null;
+          }
+          console.log(`[GameRoom] ${player.username} exited ${event.vehicleId} seat=${seat}`);
+          this.onBroadcast?.('vehicle:occupancy', event);
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle vehicle gun fire from gunner.
+   */
+  handleVehicleGunFire(event: VehicleGunFireEvent): void {
+    const gunner = this.players.get(event.playerId);
+    if (!gunner) return;
+
+    const vehicle = this.vehicles.get(event.vehicleId);
+    if (!vehicle || vehicle.occupancy.gunner !== event.playerId) return;
+
+    // Fire rate validation
+    const now = Date.now();
+    const lastFire = this.lastVehicleGunFireTime.get(event.playerId) ?? 0;
+    const minInterval = (1000 / this.VEHICLE_GUN_FIRE_RATE) * 0.85;
+    if (now - lastFire < minInterval) return;
+    this.lastVehicleGunFireTime.set(event.playerId, now);
+
+    // Broadcast gun fire (for muzzle flash on other clients)
+    this.onBroadcast?.('vehicle:gun:fire', event);
+
+    // Validate hit claim
+    if (event.hitPlayerId) {
+      const victim = this.players.get(event.hitPlayerId);
+      if (!victim || victim.health <= 0) return;
+
+      const distance = this.calculateDistance(event.origin, victim.position);
+      if (distance > this.vehicleGunRange) return;
+
+      this.applyDamage(victim, this.vehicleGunDamage);
+
+      const damageEvent: DamageEvent = {
+        shooterId: event.playerId,
+        victimId: event.hitPlayerId,
+        damage: this.vehicleGunDamage,
+        wasHeadshot: false,
+        timestamp: Date.now(),
+      };
+      this.onBroadcast?.('player:damaged', damageEvent);
+
+      if (victim.health <= 0) {
+        gunner.kills += 1;
+        victim.deaths += 1;
+        const deathEvent: PlayerDeathEvent = {
+          victimId: victim.id,
+          killerId: event.playerId,
+          weaponType: 'minigun',
+          timestamp: Date.now(),
+        };
+        this.onBroadcast?.('player:died', deathEvent);
+        this.scheduleRespawn(victim.id);
+
+        if (!this.gameOver && gunner.kills >= this.KILLS_TO_WIN) {
+          this.gameOver = true;
+          this.onBroadcast?.('game:over', {
+            winnerId: gunner.id,
+            winnerUsername: gunner.username,
+            reason: 'kills',
+            timestamp: Date.now(),
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Get all vehicle net states for snapshot broadcast.
+   */
+  getAllVehicleStates(): Record<string, VehicleNetState> {
+    const out: Record<string, VehicleNetState> = {};
+    for (const [id, v] of this.vehicles) {
+      out[id] = {
+        id: v.id,
+        position: v.position,
+        yaw: v.yaw,
+        roll: v.roll,
+        pitch: v.pitch,
+        velocityX: v.velocityX,
+        velocityZ: v.velocityZ,
+        turretYaw: v.turretYaw,
+        turretPitch: v.turretPitch,
+        occupancy: { ...v.occupancy },
+        health: v.health,
+        timestamp: Date.now(),
+      };
+    }
+    return out;
   }
 
   /**
@@ -460,12 +698,22 @@ export class GameRoom {
 
     this.updateInterval = setInterval(() => {
       if (this.onBroadcast && this.players.size > 0) {
-        const snapshot = {
+        // Initialize vehicles on first broadcast if custom map
+        if (!this.vehicleInitialized && this.currentMapId === 'custom') {
+          this.initVehiclesForMap();
+        }
+
+        const snapshot: Record<string, unknown> = {
           timestamp: Date.now(),
           mapId: this.currentMapId,
           players: this.getAllPlayerStates(),
-          destroyedDestructibles: this.destroyedDestructibles, // Sync for new joiners
+          destroyedDestructibles: this.destroyedDestructibles,
         };
+
+        if (this.vehicles.size > 0) {
+          snapshot.vehicles = this.getAllVehicleStates();
+        }
+
         this.onBroadcast('game:state:snapshot', snapshot);
       }
     }, intervalMs);

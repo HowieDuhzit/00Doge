@@ -1022,5 +1022,13 @@
       "y": 12.73351
     }
   ],
-  "labProps": []
+  "labProps": [],
+  "vehicles": [
+    {
+      "type": "warthog",
+      "x": 5,
+      "z": -2,
+      "rotation": 0.3
+    }
+  ]
 }

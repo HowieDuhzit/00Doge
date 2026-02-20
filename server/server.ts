@@ -232,6 +232,30 @@ class GameServer {
         }
       });
 
+      // Vehicle state update (driver → server)
+      socket.on('vehicle:state:update', (event: any) => {
+        const mapId = this.socketToMapId.get(socket.id);
+        if (mapId) {
+          this.gameRooms.get(mapId)?.handleVehicleStateUpdate(event);
+        }
+      });
+
+      // Vehicle occupancy change (enter/exit)
+      socket.on('vehicle:occupancy', (event: any) => {
+        const mapId = this.socketToMapId.get(socket.id);
+        if (mapId) {
+          this.gameRooms.get(mapId)?.handleVehicleOccupancy(event);
+        }
+      });
+
+      // Vehicle gun fire
+      socket.on('vehicle:gun:fire', (event: any) => {
+        const mapId = this.socketToMapId.get(socket.id);
+        if (mapId) {
+          this.gameRooms.get(mapId)?.handleVehicleGunFire(event);
+        }
+      });
+
       // Player disconnected
       socket.on('disconnect', () => {
         const mapId = this.socketToMapId.get(socket.id);

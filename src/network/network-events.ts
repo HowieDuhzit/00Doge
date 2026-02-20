@@ -46,6 +46,66 @@ export interface PlayerStateUpdate {
  */
 export type WeaponType = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'minigun';
 
+// ─── Vehicle Events ───────────────────────────────────────────────────────────
+
+import type { VehicleNetState, VehicleOccupancy } from '../vehicles/vehicle-types';
+export type { VehicleNetState };
+
+/** Vehicle state update sent from driving client to server (20Hz). */
+export interface VehicleStateUpdate {
+  vehicleId: string;
+  playerId: string; // driver's player ID
+  position: { x: number; y: number; z: number };
+  yaw: number;
+  roll: number;
+  pitch: number;
+  velocityX: number;
+  velocityZ: number;
+  turretYaw: number;
+  turretPitch: number;
+  occupancy: VehicleOccupancy;
+  health: number;
+  timestamp: number;
+}
+
+/** Sent when a player enters or exits a vehicle seat. */
+export interface VehicleOccupancyEvent {
+  vehicleId: string;
+  playerId: string;
+  seat: string;
+  action: 'enter' | 'exit';
+  timestamp: number;
+}
+
+/** Broadcast when vehicle takes damage. */
+export interface VehicleDamagedEvent {
+  vehicleId: string;
+  shooterId: string;
+  damage: number;
+  newHealth: number;
+  timestamp: number;
+}
+
+/** Broadcast when vehicle is destroyed. */
+export interface VehicleDestroyedEvent {
+  vehicleId: string;
+  destroyedById: string;
+  timestamp: number;
+}
+
+/** Vehicle gun fire event from gunner seat. */
+export interface VehicleGunFireEvent {
+  vehicleId: string;
+  playerId: string; // gunner
+  origin: { x: number; y: number; z: number };
+  direction: { x: number; y: number; z: number };
+  hitPlayerId?: string;
+  hitPoint?: { x: number; y: number; z: number };
+  timestamp: number;
+}
+
+// ─── Destructible ────────────────────────────────────────────────────────────
+
 /**
  * Destructible prop destroyed record (for sync).
  */
@@ -64,6 +124,7 @@ export interface GameStateSnapshot {
   mapId?: 'crossfire' | 'wasteland' | 'custom';
   players: Record<string, PlayerStateUpdate>;
   destroyedDestructibles?: DestroyedDestructible[]; // For new joiners + sync
+  vehicles?: Record<string, VehicleNetState>; // Vehicle states
 }
 
 /**
@@ -210,4 +271,11 @@ export enum NetworkEventType {
 
   // Game mode (Phase 4)
   GAME_OVER = 'game:over',
+
+  // Vehicle events
+  VEHICLE_STATE_UPDATE = 'vehicle:state:update',
+  VEHICLE_OCCUPANCY = 'vehicle:occupancy',
+  VEHICLE_DAMAGED = 'vehicle:damaged',
+  VEHICLE_DESTROYED = 'vehicle:destroyed',
+  VEHICLE_GUN_FIRE = 'vehicle:gun:fire',
 }

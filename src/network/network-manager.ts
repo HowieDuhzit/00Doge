@@ -18,6 +18,11 @@ import {
   FlashlightToggleEvent,
   DestructibleDestroyedEvent,
   GameOverEvent,
+  VehicleStateUpdate,
+  VehicleOccupancyEvent,
+  VehicleDamagedEvent,
+  VehicleDestroyedEvent,
+  VehicleGunFireEvent,
 } from './network-events';
 
 /**
@@ -58,6 +63,12 @@ export class NetworkManager {
 
   // Game mode (Phase 4)
   onGameOver: ((event: GameOverEvent) => void) | null = null;
+
+  // Vehicle callbacks
+  onVehicleOccupancy: ((event: VehicleOccupancyEvent) => void) | null = null;
+  onVehicleDamaged: ((event: VehicleDamagedEvent) => void) | null = null;
+  onVehicleDestroyed: ((event: VehicleDestroyedEvent) => void) | null = null;
+  onVehicleGunFire: ((event: VehicleGunFireEvent) => void) | null = null;
 
   constructor(username: string = 'Player') {
     this.username = username;
@@ -211,6 +222,23 @@ export class NetworkManager {
       this.socket.on(NetworkEventType.GAME_OVER, (event: GameOverEvent) => {
         this.onGameOver?.(event);
       });
+
+      // Vehicle events
+      this.socket.on(NetworkEventType.VEHICLE_OCCUPANCY, (event: VehicleOccupancyEvent) => {
+        this.onVehicleOccupancy?.(event);
+      });
+
+      this.socket.on(NetworkEventType.VEHICLE_DAMAGED, (event: VehicleDamagedEvent) => {
+        this.onVehicleDamaged?.(event);
+      });
+
+      this.socket.on(NetworkEventType.VEHICLE_DESTROYED, (event: VehicleDestroyedEvent) => {
+        this.onVehicleDestroyed?.(event);
+      });
+
+      this.socket.on(NetworkEventType.VEHICLE_GUN_FIRE, (event: VehicleGunFireEvent) => {
+        this.onVehicleGunFire?.(event);
+      });
     });
   }
 
@@ -301,6 +329,30 @@ export class NetworkManager {
   }
 
   /**
+   * Send vehicle state update to server (driver only, 20Hz).
+   */
+  sendVehicleState(event: VehicleStateUpdate): void {
+    if (!this.isConnected) return;
+    this.socket!.emit(NetworkEventType.VEHICLE_STATE_UPDATE, event);
+  }
+
+  /**
+   * Send vehicle occupancy event to server.
+   */
+  sendVehicleOccupancy(event: VehicleOccupancyEvent): void {
+    if (!this.isConnected) return;
+    this.socket!.emit(NetworkEventType.VEHICLE_OCCUPANCY, event);
+  }
+
+  /**
+   * Send vehicle gun fire event to server.
+   */
+  sendVehicleGunFire(event: VehicleGunFireEvent): void {
+    if (!this.isConnected) return;
+    this.socket!.emit(NetworkEventType.VEHICLE_GUN_FIRE, event);
+  }
+
+  /**
    * Dispose of resources.
    */
   dispose(): void {
@@ -317,5 +369,9 @@ export class NetworkManager {
     this.onFlashlightToggle = null;
     this.onDestructibleDestroyed = null;
     this.onGameOver = null;
+    this.onVehicleOccupancy = null;
+    this.onVehicleDamaged = null;
+    this.onVehicleDestroyed = null;
+    this.onVehicleGunFire = null;
   }
 }
