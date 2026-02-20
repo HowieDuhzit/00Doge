@@ -396,10 +396,13 @@ export function buildWarthogMesh(): THREE.Group {
   ];
 
   const wheels: THREE.Group[] = [];
+  // Wheel center Y in local space: wheel must sit at groundY+WHEEL_RADIUS when vehicle
+  // position is at groundY+GROUND_CLEARANCE, so local Y = WHEEL_RADIUS - GROUND_CLEARANCE
+  const WHEEL_REST_Y = WARTHOG.WHEEL_RADIUS - WARTHOG.GROUND_CLEARANCE; // -0.07
   for (const wd of wheelDefs) {
     const w = buildWheel();
-    w.position.set(wd.x, WARTHOG.GROUND_CLEARANCE - 0.05, wd.z);
-    // Flip right-side wheels
+    w.position.set(wd.x, WHEEL_REST_Y, wd.z);
+    // Flip right-side wheels so hub faces outward
     if (wd.x > 0) w.rotation.y = Math.PI;
     w.name = `wheel_${wd.name}`;
     wheelGroup.add(w);
@@ -493,16 +496,21 @@ export function updateWarthogWheels(
   const wheels = (root as any).wheels as THREE.Group[] | undefined;
   if (!wheels) return;
 
+  const WHEEL_REST_Y = WARTHOG.WHEEL_RADIUS - WARTHOG.GROUND_CLEARANCE; // -0.07
   for (let i = 0; i < 4; i++) {
     const w = wheels[i];
     if (!w) continue;
 
-    // Suspension
-    const baseZ = i < 2 ? 1.18 : -1.0;
-    w.position.y = WARTHOG.GROUND_CLEARANCE - 0.05 + suspensionOffsets[i];
+    // Suspension: offset from rest position, clamped to avoid extreme drooping
+    const clampedOffset = Math.max(
+      -WARTHOG.SUSPENSION_TRAVEL * 0.9,
+      Math.min(WARTHOG.SUSPENSION_TRAVEL * 0.5, suspensionOffsets[i])
+    );
+    w.position.y = WHEEL_REST_Y + clampedOffset;
 
-    // Spin
-    w.rotation.z += spinAngle * (w.position.x < 0 ? 1 : -1);
+    // Spin: wheel axle runs along X, so rotation.x spins the tire forward/backward
+    // Sign flip compensates for right-side wheels being rotated 180° on Y
+    w.rotation.x += spinAngle * (w.position.x < 0 ? 1 : -1);
 
     // Steer (front wheels only)
     if (i < 2) {
