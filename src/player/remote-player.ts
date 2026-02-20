@@ -276,12 +276,16 @@ export class RemotePlayer {
       let modelY: number;
       let colliderY: number;
       if (getGroundHeight) {
-        // Terrain map: snap model feet to terrain surface; keep collider above it.
-        // Server Y may be stale/high if player just respawned from a fixed-Y spawn point.
+        // Terrain map (custom arena): snap model feet to terrain surface.
+        // Always use terrain raycaster for the visual Y — it's more reliable than server Y because:
+        //   1. Server spawn points use a fixed Y that may not match terrain at spread XZ coords.
+        //   2. A stale server mapId sends crossfire Y≈1.2 instead of custom arena Y≈15.
+        // Allow up to 3m above terrain (for jumps/ramps) before clamping back to ground.
         const terrainY = getGroundHeight(pos.x, pos.z);
         const serverFeetY = pos.y - yOffset;
-        // Only snap if we're within 5 units — don't snap while player is in the air jumping
-        modelY = Math.abs(terrainY - serverFeetY) < 5 ? terrainY : serverFeetY;
+        // If server says player is close to or above terrain, trust server (jumping/ramps).
+        // If server Y is far below terrain, snap to terrain (stale Y or wrong-scale Y).
+        modelY = serverFeetY >= terrainY - 0.3 ? Math.min(serverFeetY, terrainY + 3) : terrainY;
         colliderY = modelY + yOffset;
       } else {
         // Flat maps (crossfire/wasteland): floor is always at y=0, never let feet go below.

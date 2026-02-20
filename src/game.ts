@@ -597,21 +597,27 @@ export class Game {
       );
       this.nameTagManager = new NameTagManager(this.fpsCamera.camera);
 
-      // Handle game state snapshots from server
-      // Drop snapshots from wrong map — prevents wrong-Y positions being applied to terrain-snap logic.
-      // This can happen if the live server hasn't been restarted since room-separation was deployed,
-      // or if a reconnect briefly lands the socket in the wrong room.
+      // Handle game state snapshots from server.
+      // Always process snapshots so remote players remain visible even if the live server
+      // has a stale mapId (old deploy, server needs restart). The terrain-snap logic in
+      // RemotePlayer already guards against bad Y values with a 5-unit tolerance check.
+      // Only hard-drop if mapId explicitly mismatches AND we trust our own mapId is correct —
+      // in that case skip terrain-snap by passing mapId override so RemotePlayer uses flat-floor mode.
       this.networkManager.onGameStateSnapshot = (snapshot) => {
-        if (snapshot.mapId != null && this.multiplayerMapId != null && snapshot.mapId !== this.multiplayerMapId) {
-          // Rate-limit the warning to once per 5s so it doesn't spam the console
+        const mapIdMismatch = snapshot.mapId != null && this.multiplayerMapId != null && snapshot.mapId !== this.multiplayerMapId;
+        if (mapIdMismatch) {
           const now = performance.now();
           if (!this._lastMapIdWarnTime || now - this._lastMapIdWarnTime > 5000) {
-            console.warn(`[Game] Dropping snapshot with wrong mapId: got '${snapshot.mapId}', expected '${this.multiplayerMapId}' — server may need restart`);
+            console.warn(`[Game] Snapshot mapId mismatch: got '${snapshot.mapId}', expected '${this.multiplayerMapId}' — server mapId stale, deploy server update`);
             this._lastMapIdWarnTime = now;
           }
-          return; // Hard-drop: don't apply wrong-map positions to this client
+          // Process snapshot but override mapId to our actual map so terrain-snap works correctly.
+          // Remote player Y values from server will be on the wrong scale (e.g. crossfire Y=1.2
+          // vs custom terrain Y≈14) — RemotePlayer's 5-unit tolerance prevents snapping in this case.
+          this.remotePlayerManager?.updateFromSnapshot({ ...snapshot, mapId: this.multiplayerMapId ?? undefined });
+        } else {
+          this.remotePlayerManager?.updateFromSnapshot(snapshot);
         }
-        this.remotePlayerManager?.updateFromSnapshot(snapshot);
         this.updateScoreboardFromSnapshot(snapshot);
         this.syncDestroyedDestructibles(snapshot.destroyedDestructibles);
       };
