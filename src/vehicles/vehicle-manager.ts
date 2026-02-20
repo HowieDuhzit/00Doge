@@ -17,6 +17,7 @@ import type { PhysicsWorld } from '../core/physics-world';
 import type { InputManager } from '../core/input-manager';
 import type { FPSCamera } from '../player/fps-camera';
 import { Vehicle } from './vehicle';
+import { buildPlayerModel } from '../player/player-model';
 import {
   WARTHOG,
   SEAT_ORDER,
@@ -140,11 +141,9 @@ export class VehicleManager {
   private readonly cameraDistance = 5.5;
   private readonly _camPos = new THREE.Vector3();
   private readonly _camTarget = new THREE.Vector3();
-  private readonly _lookDir = new THREE.Vector3();
 
-  // Reusable vectors
-  private readonly _playerPos = new THREE.Vector3();
-  private readonly _vehiclePos = new THREE.Vector3();
+  // Local player model shown while riding in a vehicle (third-person view)
+  private localPlayerModel: THREE.Group | null = null;
 
   // Callbacks for networking
   onSendVehicleState: ((state: VehicleStateUpdate) => void) | null = null;
@@ -242,6 +241,12 @@ export class VehicleManager {
 
     playVehicleBeep();
 
+    // Spawn local player model so the driver/passenger is visible in third-person
+    if (!this.localPlayerModel) {
+      this.localPlayerModel = buildPlayerModel(this.localPlayerId ?? 'local');
+      this.scene.add(this.localPlayerModel);
+    }
+
     // Notify server
     this.onSendVehicleOccupancy?.({
       vehicleId: nearest.id,
@@ -273,6 +278,12 @@ export class VehicleManager {
 
     console.log(`[VehicleManager] Player exited ${this.localVehicleId}`);
     playVehicleBeep();
+
+    // Remove local player model when exiting
+    if (this.localPlayerModel) {
+      this.scene.remove(this.localPlayerModel);
+      this.localPlayerModel = null;
+    }
 
     this.localVehicleId = null;
     this.localSeat = null;
@@ -386,13 +397,19 @@ export class VehicleManager {
 
     // ── Engine sound ──────────────────────────────────────────────────────────────
     if (localVehicle) {
-      const speed = localVehicle.getPosition().distanceTo(localVehicle.getPosition());
-      // Estimate RPM from velocity
-      const vel = new THREE.Vector3();
-      // Just use throttle as proxy for RPM for sound
-      updateEngineSound(0.3, true);
+      const normalizedSpeed = Math.min(1, localVehicle.getSpeed() / WARTHOG.MAX_SPEED);
+      updateEngineSound(Math.max(0.1, normalizedSpeed), true);
     } else {
       updateEngineSound(0, false);
+    }
+
+    // ── Local player model — position at seat ─────────────────────────────────────
+    if (localVehicle && this.localSeat && this.localPlayerModel) {
+      const seatPos = localVehicle.getSeatWorldPosition(this.localSeat);
+      // Offset down slightly so model sits in the seat rather than floating above it
+      this.localPlayerModel.position.set(seatPos.x, seatPos.y - 0.55, seatPos.z);
+      // Face same direction as vehicle
+      this.localPlayerModel.rotation.y = localVehicle.getYaw();
     }
 
     // ── Camera override when in vehicle ───────────────────────────────────────────
@@ -412,6 +429,7 @@ export class VehicleManager {
     if (!v || this.localSeat !== 'driver' || !this.localPlayerId) return null;
 
     const pos = v.getPosition();
+    const vel = v.getVelocity();
     return {
       vehicleId: v.id,
       playerId: this.localPlayerId,
@@ -419,8 +437,8 @@ export class VehicleManager {
       yaw: v.getYaw(),
       roll: (v as any).rollAngle ?? 0,
       pitch: (v as any).pitchAngle ?? 0,
-      velocityX: 0,
-      velocityZ: 0,
+      velocityX: vel.x,
+      velocityZ: vel.z,
       turretYaw: v.turretYaw,
       turretPitch: v.turretPitch,
       occupancy: { ...v.occupancy },
@@ -470,9 +488,9 @@ export class VehicleManager {
       const seatPos = vehicle.getSeatWorldPosition(this.localSeat!);
       camera.camera.position.copy(seatPos).add(new THREE.Vector3(0, 0.15, 0));
       this._camTarget.set(
-        seatPos.x - Math.sin(vYaw) * 3,
+        seatPos.x + Math.sin(vYaw) * 3,
         seatPos.y,
-        seatPos.z - Math.cos(vYaw) * 3,
+        seatPos.z + Math.cos(vYaw) * 3,
       );
       camera.camera.lookAt(this._camTarget);
     }

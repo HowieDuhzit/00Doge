@@ -1397,6 +1397,7 @@ export class Game {
     }
 
     // Weapons (before physics, so fire input is responsive) — disabled in vehicle
+    this.weaponManager.setViewModelVisible(!playerInVehicle);
     if (!playerInVehicle) {
       this.weaponManager.update(this.input, dt);
     }
@@ -1414,24 +1415,29 @@ export class Game {
         this.networkMode === 'client',
       );
 
-      // When local player is in a vehicle, keep their physics capsule at vehicle seat
-      // so raycasts / collision queries remain valid
-      if (playerInVehicle) {
-        const localVehicle = this.vehicleManager.getLocalVehicle();
-        const localSeat = this.vehicleManager.getLocalSeat();
-        if (localVehicle && localSeat) {
-          const seatPos = localVehicle.getSeatWorldPosition(localSeat);
-          this.player.setPosition(seatPos.x, seatPos.y, seatPos.z);
-        }
-      }
     }
 
     // Fixed-step physics
     this.physicsAccumulator += dt;
     while (this.physicsAccumulator >= PHYSICS_STEP) {
-      this.player.update(this.input, PHYSICS_STEP);
+      // Skip player movement while in a vehicle — vehicle manager pins the capsule
+      // and overrides the camera; running player.update() would fight both.
+      if (!playerInVehicle) {
+        this.player.update(this.input, PHYSICS_STEP);
+      }
       this.physics.step();
       this.physicsAccumulator -= PHYSICS_STEP;
+    }
+
+    // Pin player capsule to vehicle seat (after physics, so kinematic body is stable).
+    // Uses setBodyPosition so the vehicle camera set above is not overwritten.
+    if (playerInVehicle && this.vehicleManager) {
+      const localVehicle = this.vehicleManager.getLocalVehicle();
+      const localSeat = this.vehicleManager.getLocalSeat();
+      if (localVehicle && localSeat) {
+        const seatPos = localVehicle.getSeatWorldPosition(localSeat);
+        this.player.setBodyPosition(seatPos.x, seatPos.y, seatPos.z);
+      }
     }
 
     // Grenades — after physics so throw origin matches current camera/eye position
