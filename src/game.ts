@@ -725,12 +725,13 @@ export class Game {
 
           console.log(`[Game] Respawned at (${event.position.x}, ${event.position.y}, ${event.position.z})`);
         } else {
-          // Reset remote player after respawn
+          // Reset remote player after respawn and snap to respawn position immediately
           const remotePlayer = this.remotePlayerManager?.getPlayer(event.playerId);
           if (remotePlayer) {
             remotePlayer.resetAfterRespawn();
+            remotePlayer.snapToPosition(event.position.x, event.position.y, event.position.z);
           }
-          console.log(`[Game] Player ${event.playerId} respawned`);
+          console.log(`[Game] Player ${event.playerId} respawned at (${event.position.x}, ${event.position.y}, ${event.position.z})`);
         }
       };
 

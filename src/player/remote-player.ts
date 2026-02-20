@@ -151,7 +151,7 @@ export class RemotePlayer {
     const colliderDesc = RAPIER.ColliderDesc.capsule(0.9, 0.3); // Standing capsule
     this.collider = physics.world.createCollider(colliderDesc, this.rigidBody);
     this.collider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-    this.interpolationBuffer = new InterpolationBuffer(50); // 50ms delay — 1 snapshot interval at 20Hz
+    this.interpolationBuffer = new InterpolationBuffer(66); // 66ms delay — 2 snapshot intervals at 30Hz
   }
 
   /**
@@ -260,22 +260,25 @@ export class RemotePlayer {
 
       // Use same position for collider and model so hitbox matches what you see
       const pos = interpolatedState.position;
-      const capsuleFeetOffset = 0.9; // halfHeight 0.6 + radius 0.3
 
       this.rigidBody.setTranslation({ x: pos.x, y: pos.y, z: pos.z }, true);
 
-      // Model: use server position so visual matches collider. Optional terrain snap
-      // only nudges down if we'd otherwise be floating (avoids model above hitbox).
-      let modelY = pos.y - capsuleFeetOffset;
+      // Model Y: offset from capsule center to feet.
+      // Capsule collider: halfHeight=0.9, radius=0.3 → feet = center - 1.2.
+      const yOffset = this.spriteMode ? 1.0 : (this.customAnimator ? 1.0 : 1.2);
+      let modelY = pos.y - yOffset;
+
       if (this.getGroundHeight) {
+        // Terrain maps (custom arena): clamp model feet to terrain surface (up and down).
         const terrainY = this.getGroundHeight(pos.x, pos.z);
-        if (terrainY < modelY - 0.2) {
-          modelY = terrainY; // Sink to terrain if we'd be floating
+        if (Math.abs(terrainY - modelY) < 1.5) {
+          modelY = terrainY;
         }
       } else {
-        const yOffset = this.spriteMode ? 1.0 : (this.customAnimator ? 1.0 : 1.3);
-        modelY = pos.y - yOffset;
+        // Flat maps (crossfire/wasteland): floor is always at y=0, never let feet go below.
+        modelY = Math.max(0, modelY);
       }
+
       this.model.position.set(pos.x, modelY, pos.z);
 
       // Shadow: match model or collider feet
@@ -423,6 +426,23 @@ export class RemotePlayer {
     if (!this.ragdollActive && this.customAnimator) {
       this.customAnimator.play('death');
     }
+  }
+
+  /**
+   * Immediately snap the model and collider to a position (e.g. on respawn).
+   * Call after resetAfterRespawn() to avoid the model sitting at the death position
+   * until the next snapshot arrives.
+   */
+  snapToPosition(x: number, y: number, z: number): void {
+    this.rigidBody.setTranslation({ x, y, z }, true);
+    const yOffset = this.spriteMode ? 1.0 : (this.customAnimator ? 1.0 : 1.2);
+    const modelY = this.getGroundHeight
+      ? this.getGroundHeight(x, z)
+      : Math.max(0, y - yOffset);
+    this.model.position.set(x, modelY, z);
+    this.shadowMesh.position.set(x, modelY + 0.01, z);
+    this.smoothedPosition.set(x, y, z);
+    this.hasInitialPosition = true;
   }
 
   /**

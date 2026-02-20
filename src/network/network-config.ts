@@ -51,6 +51,6 @@ export const NetworkConfig = {
   UPDATE_RATES: {
     PLAYER_STATE: 30, // Send player state 30 times per second (active)
     PLAYER_STATE_IDLE: 10, // Send player state 10 times per second when idle
-    INTERPOLATION_DELAY: 50, // ms - how far behind to interpolate remote players
+    INTERPOLATION_DELAY: 66, // ms - how far behind to interpolate remote players (2x snapshot interval at 30Hz)
   },
 };

@@ -77,16 +77,42 @@ export class InterpolationBuffer {
       }
     }
 
-    // If target time is ahead of all snapshots, extrapolate from last two
+    // If target time is ahead of all snapshots (buffer ran dry), extrapolate from last two.
+    // Allow extrapolation up to 150ms beyond last snapshot before freezing to avoid
+    // obvious stutter — player continues in the same direction briefly.
     if (!from && !to && targetTime > this.snapshots[this.snapshots.length - 1].timestamp) {
       from = this.snapshots[this.snapshots.length - 2];
       to = this.snapshots[this.snapshots.length - 1];
+
+      const timeSinceLastSnapshot = targetTime - to.timestamp;
+      if (timeSinceLastSnapshot > 150) {
+        // Too far extrapolated — return last known position to avoid drift
+        return to.state;
+      }
+      // Let t go slightly above 1.0 for extrapolation (capped at 1.5 snapshots ahead)
+      const duration = to.timestamp - from.timestamp;
+      const elapsed = targetTime - from.timestamp;
+      const t = duration > 0 ? Math.min(elapsed / duration, 2.5) : 1;
+      return {
+        playerId: from.state.playerId,
+        position: {
+          x: this.lerp(from.state.position.x, to.state.position.x, t),
+          y: this.lerp(from.state.position.y, to.state.position.y, t),
+          z: this.lerp(from.state.position.z, to.state.position.z, t),
+        },
+        rotation: this.lerpAngle(from.state.rotation, to.state.rotation, t),
+        health: to.state.health,
+        armor: to.state.armor,
+        currentWeapon: to.state.currentWeapon,
+        crouching: to.state.crouching,
+        isMoving: to.state.isMoving,
+        timestamp: targetTime,
+      };
     }
 
-    // If target time is before all snapshots, use first two
+    // If target time is before all snapshots, use oldest snapshot
     if (!from && !to && targetTime < this.snapshots[0].timestamp) {
-      from = this.snapshots[0];
-      to = this.snapshots[1];
+      return this.snapshots[0].state;
     }
 
     // Fallback: use two most recent
@@ -95,13 +121,10 @@ export class InterpolationBuffer {
       to = this.snapshots[this.snapshots.length - 1];
     }
 
-    // Calculate interpolation factor (0 to 1)
+    // Calculate interpolation factor (clamped 0..1 for normal interpolation)
     const duration = to.timestamp - from.timestamp;
     const elapsed = targetTime - from.timestamp;
-    let t = duration > 0 ? elapsed / duration : 0;
-
-    // Clamp t to 1.0 — extrapolation causes visual/hitbox drift over time
-    t = Math.max(0, Math.min(1, t));
+    const t = Math.max(0, Math.min(1, duration > 0 ? elapsed / duration : 0));
 
     // Linearly interpolate position and rotation
     return {

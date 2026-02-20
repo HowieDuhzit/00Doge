@@ -251,15 +251,16 @@ function createPickups(): PickupSpawnDef[] {
 }
 
 export function getMultiplayerArenaSpawnPoints(): SpawnDef[] {
+  // Y = 1.2 = capsule center height (feet at y=0, radius=0.3, halfHeight=0.9 → center=1.2)
   return [
-    { x: -30, y: 0.5, z: 0 },
-    { x: -26, y: 0.5, z: -6 },
-    { x: -26, y: 0.5, z: 6 },
-    { x: 30, y: 0.5, z: 0 },
-    { x: 26, y: 0.5, z: -6 },
-    { x: 26, y: 0.5, z: 6 },
-    { x: 0, y: 0.5, z: -6 },
-    { x: 0, y: 0.5, z: 6 },
+    { x: -30, y: 1.2, z: 0 },
+    { x: -26, y: 1.2, z: -6 },
+    { x: -26, y: 1.2, z: 6 },
+    { x: 30, y: 1.2, z: 0 },
+    { x: 26, y: 1.2, z: -6 },
+    { x: 26, y: 1.2, z: 6 },
+    { x: 0, y: 1.2, z: -6 },
+    { x: 0, y: 1.2, z: 6 },
   ];
 }
 
