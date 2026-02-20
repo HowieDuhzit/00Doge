@@ -13,9 +13,11 @@ export type PickupType =
   | 'ammo-rifle'
   | 'ammo-shotgun'
   | 'ammo-sniper'
+  | 'ammo-minigun'
   | 'weapon-rifle'
   | 'weapon-shotgun'
   | 'weapon-sniper'
+  | 'weapon-minigun'
   | 'key';
 
 interface Pickup {
@@ -37,6 +39,7 @@ const WEAPON_GLOW_COLORS: Record<string, number> = {
   'weapon-rifle': 0x66ff44,
   'weapon-shotgun': 0xff8844,
   'weapon-sniper': 0x4488ff,
+  'weapon-minigun': 0xff3322,
 };
 
 export class PickupSystem {
@@ -304,6 +307,7 @@ function buildWeaponFallbackMesh(type: PickupType): THREE.Group {
     'weapon-rifle': 0x99ff44,
     'weapon-shotgun': 0xff8844,
     'weapon-sniper': 0x44aaff,
+    'weapon-minigun': 0xff4433,
   };
   const tint = tints[type] ?? 0x99ff44;
   const mat = new THREE.MeshStandardMaterial({

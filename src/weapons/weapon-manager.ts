@@ -10,15 +10,19 @@ import { Pistol } from './weapons/pistol';
 import { Rifle } from './weapons/rifle';
 import { Shotgun } from './weapons/shotgun';
 import { Sniper } from './weapons/sniper';
-import { playGunshotWeapon, playDryFire, playReload } from '../audio/sound-effects';
+import { Minigun } from './weapons/minigun';
+import {
+  playGunshotWeapon, playDryFire, playReload,
+  startMinigunSpinWhine, stopMinigunSpinWhine, updateMinigunSpinWhine,
+} from '../audio/sound-effects';
 import type { WeaponSkin } from './weapon-skins';
 
-const WEAPON_TYPE_MAP: WeaponType[] = ['pistol', 'rifle', 'shotgun', 'sniper'];
+const WEAPON_TYPE_MAP: WeaponType[] = ['pistol', 'rifle', 'shotgun', 'sniper', 'minigun'];
 const DEFAULT_FOV = 75;
 const SCOPED_FOV = 25;
 
 export class WeaponManager {
-  private weapons: (WeaponBase | null)[] = [null, null, null, null];
+  private weapons: (WeaponBase | null)[] = [null, null, null, null, null];
   private currentIndex = 0;
   private viewModel: WeaponViewModel;
   private projectileSystem: ProjectileSystem;
@@ -43,6 +47,7 @@ export class WeaponManager {
     rifle: 'default',
     shotgun: 'default',
     sniper: 'default',
+    minigun: 'default',
   };
 
   constructor(
@@ -74,7 +79,7 @@ export class WeaponManager {
     return this._scoped;
   }
 
-  addWeapon(type: 'pistol' | 'rifle' | 'shotgun' | 'sniper'): boolean {
+  addWeapon(type: 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'minigun'): boolean {
     const slotIndex = WEAPON_TYPE_MAP.indexOf(type);
     if (slotIndex === -1) return false;
 
@@ -88,11 +93,12 @@ export class WeaponManager {
       case 'rifle': this.weapons[slotIndex] = new Rifle(); break;
       case 'shotgun': this.weapons[slotIndex] = new Shotgun(); break;
       case 'sniper': this.weapons[slotIndex] = new Sniper(); break;
+      case 'minigun': this.weapons[slotIndex] = new Minigun(); break;
     }
     return true;
   }
 
-  addAmmo(type: 'pistol' | 'rifle' | 'shotgun' | 'sniper', amount: number): void {
+  addAmmo(type: 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'minigun', amount: number): void {
     const slotIndex = WEAPON_TYPE_MAP.indexOf(type);
     if (slotIndex !== -1 && this.weapons[slotIndex]) {
       this.weapons[slotIndex]!.addAmmo(amount);
@@ -103,11 +109,18 @@ export class WeaponManager {
     if (index === this.currentIndex) return;
     if (!this.weapons[index]) return;
 
+    // Stop minigun whine when leaving minigun slot
+    if (WEAPON_TYPE_MAP[this.currentIndex] === 'minigun') stopMinigunSpinWhine();
+
     this._scoped = false;
     this.viewModel.setScoped(false);
     this.currentIndex = index;
     const type = WEAPON_TYPE_MAP[index];
     this.viewModel.switchWeapon(type, this.weaponSkins[type]);
+
+    // Start minigun whine when entering minigun slot
+    if (type === 'minigun') startMinigunSpinWhine();
+
     this.events.emit('weapon:switched', { weaponName: this.currentWeapon.stats.name });
   }
 
@@ -135,7 +148,7 @@ export class WeaponManager {
   /** List of owned weapons with name and current skin (for inventory UI). */
   getOwnedWeapons(): { type: WeaponType; name: string; skin: WeaponSkin }[] {
     const out: { type: WeaponType; name: string; skin: WeaponSkin }[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < WEAPON_TYPE_MAP.length; i++) {
       const w = this.weapons[i];
       if (!w) continue;
       const type = WEAPON_TYPE_MAP[i];
@@ -149,7 +162,8 @@ export class WeaponManager {
     const weapon = this.currentWeapon;
 
     // Weapon switching (number keys)
-    for (let i = 0; i < 4; i++) {
+    const slotCount = WEAPON_TYPE_MAP.length;
+    for (let i = 0; i < slotCount; i++) {
       if (input.wasKeyJustPressed(String(i + 1)) && this.weapons[i]) {
         this.switchTo(i);
       }
@@ -159,8 +173,8 @@ export class WeaponManager {
     if (input.scrollDelta !== 0) {
       let next = this.currentIndex;
       const dir = input.scrollDelta > 0 ? 1 : -1;
-      for (let attempt = 0; attempt < 4; attempt++) {
-        next = (next + dir + 4) % 4;
+      for (let attempt = 0; attempt < slotCount; attempt++) {
+        next = (next + dir + slotCount) % slotCount;
         if (this.weapons[next]) {
           this.switchTo(next);
           break;
@@ -194,11 +208,22 @@ export class WeaponManager {
 
     // Fire
     const mouseDown = input.mouseDown;
+    const isMinigun = WEAPON_TYPE_MAP[this.currentIndex] === 'minigun';
+
+    // Minigun: spin up on mouse-hold, fire only once barrel is at threshold speed
+    if (isMinigun) {
+      this.viewModel.setMinigunSpinning(mouseDown);
+      updateMinigunSpinWhine(this.viewModel.minigunSpinSpeed, 25);
+    }
+
     const shouldFire = weapon.stats.automatic
       ? mouseDown
       : mouseDown && !this.wasMouseDown;
 
-    if (this.combatEnabled && shouldFire && input.canShoot) {
+    // Minigun requires barrels to be spinning above 60% max speed before firing
+    const minigunReady = !isMinigun || (this.viewModel.minigunSpinSpeed >= 15);
+
+    if (this.combatEnabled && shouldFire && input.canShoot && minigunReady) {
       if (weapon.canFire(now)) {
         weapon.fire(now);
         this.doFire();

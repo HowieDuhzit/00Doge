@@ -30,6 +30,8 @@ const PICKUP_TYPES: EditorPickupDef[] = [
   { type: 'weapon-rifle', label: 'Rifle', defaultAmount: 0 },
   { type: 'weapon-shotgun', label: 'Shotgun', defaultAmount: 0 },
   { type: 'weapon-sniper', label: 'Sniper', defaultAmount: 0 },
+  { type: 'weapon-minigun', label: 'Minigun', defaultAmount: 0 },
+  { type: 'ammo-minigun', label: 'Ammo·MG', defaultAmount: 200 },
 ];
 
 const PROP_TYPES: EditorPropDef[] = [

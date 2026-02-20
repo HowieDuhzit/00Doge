@@ -65,11 +65,12 @@ import { getSunState, getSkyboxMode } from './core/day-night-cycle';
 const PHYSICS_STEP = 1 / 60;
 
 /** Map weapon name to canonical network type (for weapon fire and player state sync). */
-function getCanonicalWeaponType(weaponName: string): 'pistol' | 'rifle' | 'shotgun' | 'sniper' {
+function getCanonicalWeaponType(weaponName: string): 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'minigun' {
   const name = weaponName.toLowerCase();
   if (name.includes('sniper')) return 'sniper';
   if (name.includes('shotgun')) return 'shotgun';
   if (name.includes('soviet') || name.includes('rifle')) return 'rifle';
+  if (name.includes('minigun') || name.includes('m134')) return 'minigun';
   if (name.includes('pistol') || name.includes('pp7')) return 'pistol';
   return 'pistol';
 }
@@ -278,8 +279,9 @@ export class Game {
       0, 0.5, 0,
     );
 
-    // Projectile system (raycasting + decals)
+    // Projectile system (raycasting + decals + tracers)
     this.projectileSystem = new ProjectileSystem(this.scene, this.physics);
+    this.projectileSystem.setCamera(this.fpsCamera.camera);
 
     // Weapon manager (getter ensures current collider after crouch/stand)
     this.weaponManager = new WeaponManager(
@@ -1669,6 +1671,10 @@ export class Game {
         this.weaponManager.addAmmo('sniper', amount);
         this.hud.showPickupNotification(`+${amount} Sniper Rounds`);
         break;
+      case 'ammo-minigun':
+        this.weaponManager.addAmmo('minigun', amount);
+        this.hud.showPickupNotification(`+${amount} Minigun Rounds`);
+        break;
       case 'weapon-rifle':
         this.weaponManager.addWeapon('rifle');
         this.hud.showPickupNotification('KF7 Soviet');
@@ -1680,6 +1686,10 @@ export class Game {
       case 'weapon-sniper':
         this.weaponManager.addWeapon('sniper');
         this.hud.showPickupNotification('Sniper Rifle');
+        break;
+      case 'weapon-minigun':
+        this.weaponManager.addWeapon('minigun');
+        this.hud.showPickupNotification('M134 Minigun');
         break;
     }
   }
@@ -1698,6 +1708,7 @@ export class Game {
     this.pickupSystem.spawn('weapon-rifle', ox(-3), getY(ox(-3), oz(-3)), oz(-3), 0);
     this.pickupSystem.spawn('weapon-shotgun', ox(6), getY(ox(6), oz(6)), oz(6), 0);
     this.pickupSystem.spawn('weapon-sniper', ox(-7), getY(ox(-7), oz(7)), oz(7), 0);
+    this.pickupSystem.spawn('weapon-minigun', ox(9), getY(ox(9), oz(-5)), oz(-5), 0);
 
     // Health packs
     this.pickupSystem.spawn('health', ox(0), getY(ox(0), oz(8)), oz(8), 25);
@@ -1748,6 +1759,7 @@ export class Game {
     this.pickupSystem.spawn('weapon-shotgun', ox(-6), getY(ox(-6), oz(-12)), oz(-12), 0);
     this.pickupSystem.spawn('weapon-sniper', ox(0), getY(ox(0), oz(-14)), oz(-14), 0);
     this.pickupSystem.spawn('weapon-sniper', ox(-14), getY(ox(-14), oz(4)), oz(4), 0);
+    this.pickupSystem.spawn('weapon-minigun', ox(12), getY(ox(12), oz(-12)), oz(-12), 0);
     this.pickupSystem.spawn('health', ox(-10), getY(ox(-10), oz(0)), oz(0), 25);
     this.pickupSystem.spawn('health', ox(10), getY(ox(10), oz(-6)), oz(-6), 25);
     this.pickupSystem.spawn('health', ox(0), getY(ox(0), oz(10)), oz(10), 25);

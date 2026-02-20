@@ -41,6 +41,14 @@ export class WeaponViewModel {
   private reloadAnimTime = 0;
   private reloadAnimDuration = 0;
 
+  // Minigun barrel spin state
+  private barrelSpinSpeed = 0;          // current radians/sec
+  private barrelSpinAngle = 0;          // accumulated rotation in radians
+  private _minigunFiring = false;
+  private readonly BARREL_SPIN_MAX = 25; // max rad/sec (~4 full rotations/sec)
+  private readonly BARREL_SPIN_ACCEL = 40; // rad/sec²
+  private readonly BARREL_SPIN_DECEL = 20; // rad/sec²
+
   constructor() {
     this.group = new THREE.Group();
     this.group.renderOrder = 999;
@@ -97,6 +105,9 @@ export class WeaponViewModel {
     } else if (type === 'sniper') {
       this.restPosition.set(0.3, -0.3, -0.55);
       this.muzzleOffset.set(0, 0.03, -0.55);
+    } else if (type === 'minigun') {
+      this.restPosition.set(0.22, -0.28, -0.42);
+      this.muzzleOffset.set(0, 0.042, -0.54);
     } else {
       this.restPosition.set(0.3, -0.28, -0.5);
       this.muzzleOffset.set(0, 0.04, -0.32);
@@ -133,6 +144,7 @@ export class WeaponViewModel {
     const strength = this.currentType === 'shotgun' ? 1.6
       : this.currentType === 'sniper' ? 1.4
       : this.currentType === 'rifle' ? 0.6
+      : this.currentType === 'minigun' ? 0.25  // Very light per-shot recoil — fires 20/s
       : 1.0;
     this.recoilOffset = strength;
     this.flashTimer = 0.05;
@@ -237,6 +249,24 @@ export class WeaponViewModel {
     this.weaponMesh.rotation.x = reloadTilt * 0.4;
     this.weaponMesh.rotation.z = reloadTilt * 0.12;
 
+    // Minigun barrel spin animation
+    if (this.currentType === 'minigun') {
+      if (this._minigunFiring) {
+        this.barrelSpinSpeed = Math.min(this.BARREL_SPIN_MAX, this.barrelSpinSpeed + this.BARREL_SPIN_ACCEL * dt);
+      } else {
+        this.barrelSpinSpeed = Math.max(0, this.barrelSpinSpeed - this.BARREL_SPIN_DECEL * dt);
+      }
+      this.barrelSpinAngle += this.barrelSpinSpeed * dt;
+      const cluster = this.weaponMesh.getObjectByName('barrelCluster') as THREE.Object3D | undefined;
+      if (cluster) {
+        cluster.rotation.z = this.barrelSpinAngle;
+      }
+    } else {
+      // Reset spin state when switching away from minigun
+      this.barrelSpinSpeed = 0;
+      this.barrelSpinAngle = 0;
+    }
+
     // Update plasma skin animation (time-based emissive flow)
     if (this.currentSkin === 'plasma') {
       const t = performance.now() * 0.001;
@@ -271,6 +301,16 @@ export class WeaponViewModel {
       (this.muzzleFlash.material as THREE.MeshBasicMaterial).opacity = 0;
       this.muzzleLight.intensity = 0;
     }
+  }
+
+  /** Called each frame — true = firing (spin up), false = coasting (spin down). */
+  setMinigunSpinning(firing: boolean): void {
+    this._minigunFiring = firing;
+  }
+
+  /** Returns current barrel spin speed (rad/s). Used by WeaponManager to gate fire. */
+  get minigunSpinSpeed(): number {
+    return this.barrelSpinSpeed;
   }
 
   addSway(dx: number, dy: number): void {

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { PhysicsWorld } from '../core/physics-world';
 import { WeaponBase } from './weapon-base';
+import { TracerSystem } from './tracer-system';
 
 const MAX_DECALS = 50;
 const DECAL_LIFETIME = 1.5; // seconds - impact effects fade quickly
@@ -43,6 +44,10 @@ export class ProjectileSystem {
   // Pool for impact particle velocities (avoid allocation churn)
   private readonly _velPool: THREE.Vector3[] = [];
 
+  // Tracer system (bullet streaks)
+  private tracerSystem: TracerSystem;
+  private _camera: THREE.Camera | null = null;
+
   // Callbacks for hit detection
   onHitCollider: ((collider: RAPIER.Collider, point: THREE.Vector3, normal: THREE.Vector3) => void) | null = null;
   /** If set, decals and impact particles are skipped when the hit collider is an enemy (avoids lingering effects on bodies). */
@@ -51,6 +56,7 @@ export class ProjectileSystem {
   constructor(scene: THREE.Scene, physics: PhysicsWorld) {
     this.scene = scene;
     this.physics = physics;
+    this.tracerSystem = new TracerSystem(scene);
 
     // Bullet hole decal material
     this.decalMaterial = new THREE.MeshBasicMaterial({
@@ -122,8 +128,14 @@ export class ProjectileSystem {
         this.onHitCollider(result.collider, this._hitPoint, this._normal);
       }
 
+      // Bullet tracer streak
+      this.tracerSystem.spawnTracer(this._spreadDir, origin, this._hitPoint, weapon.stats.range, weapon.stats.name);
+
       return { hit: true, point: this._hitPoint.clone(), collider: result.collider };
     }
+
+    // Tracer for miss (full range)
+    this.tracerSystem.spawnTracer(this._spreadDir, origin, null, weapon.stats.range, weapon.stats.name);
 
     return { hit: false };
   }
@@ -167,16 +179,26 @@ export class ProjectileSystem {
     }
   }
 
+  /** Provide the camera reference needed for tracer billboard alignment. Call once after construction. */
+  setCamera(camera: THREE.Camera): void {
+    this._camera = camera;
+  }
+
   /** Spawn bullet hole decal and impact particles (e.g. for enemy shots hitting walls) */
   spawnImpactAt(point: THREE.Vector3, normal: THREE.Vector3): void {
     this.createDecal(point.clone(), normal.clone());
     this.spawnImpactParticles(point.clone(), normal.clone());
   }
 
-  /** Update particles and clean up old decals — called once per frame from game loop */
+  /** Update particles, tracers and clean up old decals — called once per frame from game loop */
   update(dt?: number): void {
     const now = performance.now() / 1000;
     const frameDt = dt ?? 0.016;
+
+    // Update tracer streaks (needs camera for billboard alignment)
+    if (this._camera) {
+      this.tracerSystem.update(frameDt, this._camera);
+    }
 
     // Batch-update active particles (no individual rAF loops)
     for (let i = this.activeParticles.length - 1; i >= 0; i--) {

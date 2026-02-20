@@ -28,7 +28,7 @@ export function setSFXVolume(vol: number): void {
   if (sfxGain) sfxGain.gain.value = Math.max(0, Math.min(1, vol));
 }
 
-export type WeaponSoundType = 'pistol' | 'rifle' | 'shotgun' | 'sniper';
+export type WeaponSoundType = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'minigun';
 
 // ─── Shared helpers ───
 
@@ -365,6 +365,197 @@ export function playGunshotSniper(): void {
   bolt.stop(now + 0.18);
 }
 
+/**
+ * Minigun: single round crack — rifle-style snap + punchy bass thump.
+ * Short envelope so 20 shots/sec blend into a mechanical roar without clipping.
+ */
+export function playGunshotMinigun(): void {
+  const ctx = getAudioCtx();
+  const now = ctx.currentTime;
+
+  // 1. Supersonic crack — sharp high-frequency transient
+  const crack = makeNoise(ctx, 0.022, 8);
+  const crackHp = ctx.createBiquadFilter();
+  crackHp.type = 'highpass';
+  crackHp.frequency.setValueAtTime(5000, now);
+  crackHp.frequency.exponentialRampToValueAtTime(2000, now + 0.018);
+  const crackG = ctx.createGain();
+  crackG.gain.setValueAtTime(0.42, now);
+  crackG.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
+  crack.connect(crackHp);
+  crackHp.connect(crackG);
+  crackG.connect(getSFXDest());
+  crack.start(now);
+  crack.stop(now + 0.025);
+
+  // 2. Mid-frequency body bark — distorted bandpass like rifle muzzle blast
+  const body = makeNoise(ctx, 0.04, 4);
+  const bodyBp = ctx.createBiquadFilter();
+  bodyBp.type = 'bandpass';
+  bodyBp.frequency.setValueAtTime(1600, now);
+  bodyBp.frequency.exponentialRampToValueAtTime(350, now + 0.035);
+  bodyBp.Q.value = 1.2;
+  const bodyDist = makeDistortion(ctx, 30);
+  const bodyG = ctx.createGain();
+  bodyG.gain.setValueAtTime(0.30, now);
+  bodyG.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+  body.connect(bodyBp);
+  bodyBp.connect(bodyDist);
+  bodyDist.connect(bodyG);
+  bodyG.connect(getSFXDest());
+  body.start(now);
+  body.stop(now + 0.048);
+
+  // 3. Bass thump — felt percussion, kept moderate so 20/s blends into a growl
+  const bass = ctx.createOscillator();
+  bass.frequency.setValueAtTime(140, now);
+  bass.frequency.exponentialRampToValueAtTime(38, now + 0.04);
+  const bassG = ctx.createGain();
+  bassG.gain.setValueAtTime(0.22, now);
+  bassG.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+  bass.connect(bassG);
+  bassG.connect(getSFXDest());
+  bass.start(now);
+  bass.stop(now + 0.055);
+}
+
+// ── Minigun spin-up whine (persistent oscillator, frequency tracks barrel RPM) ──
+interface MinigunSpinNodes {
+  noiseGain: GainNode;
+  motorOsc: OscillatorNode;
+  motorGain: GainNode;
+  noiseBp: BiquadFilterNode;
+  noiseBp2: BiquadFilterNode;
+  masterGain: GainNode;
+  noiseSource: AudioBufferSourceNode;
+}
+let _minigunSpinNodes: MinigunSpinNodes | null = null;
+
+/**
+ * Start the minigun barrel-spin sound. Uses layered noise + clipped oscillator
+ * for a mechanical motor/bearing rumble rather than a tonal whine.
+ * Call once when minigun is equipped; update each frame via updateMinigunSpinWhine().
+ */
+export function startMinigunSpinWhine(): void {
+  if (_minigunSpinNodes) return;
+  const ctx = getAudioCtx();
+
+  // ── Layer 1: Bandpass-filtered noise (bearing friction / motor rumble) ──────
+  // Generate a short noise buffer and loop it
+  const bufLen = ctx.sampleRate * 2; // 2-second noise buffer
+  const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+  const data = noiseBuf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+
+  const noiseSource = ctx.createBufferSource();
+  noiseSource.buffer = noiseBuf;
+  noiseSource.loop = true;
+
+  // Two narrow bandpass filters in series — lower one for rumble, higher for grit
+  const noiseBp = ctx.createBiquadFilter();
+  noiseBp.type = 'bandpass';
+  noiseBp.frequency.setValueAtTime(120, ctx.currentTime);
+  noiseBp.Q.value = 1.8;
+
+  const noiseBp2 = ctx.createBiquadFilter();
+  noiseBp2.type = 'bandpass';
+  noiseBp2.frequency.setValueAtTime(400, ctx.currentTime);
+  noiseBp2.Q.value = 2.2;
+
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0, ctx.currentTime);
+
+  noiseSource.connect(noiseBp);
+  noiseBp.connect(noiseBp2);
+  noiseBp2.connect(noiseGain);
+
+  // ── Layer 2: Clipped sawtooth — rotation chatter / mechanical buzz ───────────
+  // Sawtooth at motor RPM frequency, hard-clipped via WaveShaper for grit
+  const motorOsc = ctx.createOscillator();
+  motorOsc.type = 'sawtooth';
+  motorOsc.frequency.setValueAtTime(8, ctx.currentTime); // starts below hearing
+
+  // Hard clipper — heavy distortion gives mechanical character, kills the pure tone
+  const clipperCurve = new Float32Array(512);
+  for (let i = 0; i < 512; i++) {
+    const x = (i / 255) - 1; // -1 to +1
+    clipperCurve[i] = Math.max(-0.3, Math.min(0.3, x * 3.5)) / 0.3; // saturate hard
+  }
+  const clipper = ctx.createWaveShaper();
+  clipper.curve = clipperCurve;
+  clipper.oversample = '2x';
+
+  const motorBp = ctx.createBiquadFilter();
+  motorBp.type = 'bandpass';
+  motorBp.frequency.setValueAtTime(200, ctx.currentTime);
+  motorBp.Q.value = 0.8;
+
+  const motorGain = ctx.createGain();
+  motorGain.gain.setValueAtTime(0, ctx.currentTime);
+
+  motorOsc.connect(clipper);
+  clipper.connect(motorBp);
+  motorBp.connect(motorGain);
+
+  // ── Master gain ─────────────────────────────────────────────────────────────
+  const masterGain = ctx.createGain();
+  masterGain.gain.setValueAtTime(0, ctx.currentTime);
+  noiseGain.connect(masterGain);
+  motorGain.connect(masterGain);
+  masterGain.connect(getSFXDest());
+
+  noiseSource.start();
+  motorOsc.start();
+
+  _minigunSpinNodes = { noiseGain, motorOsc, motorGain, noiseBp, noiseBp2, masterGain, noiseSource };
+}
+
+/**
+ * Update spin sound pitch and volume each frame.
+ * @param spinSpeed  Current barrel spin speed in rad/s (0 = stopped, ~25 = max)
+ * @param maxSpeed   Max spin speed constant (25 rad/s)
+ */
+export function updateMinigunSpinWhine(spinSpeed: number, maxSpeed: number): void {
+  if (!_minigunSpinNodes) return;
+  const ctx = getAudioCtx();
+  const t = ctx.currentTime;
+  const frac = Math.max(0, Math.min(1, spinSpeed / maxSpeed));
+
+  // Noise bandpass center frequencies: low rumble 80→320 Hz, grit layer 250→900 Hz
+  const bpFreq1 = 80 + frac * 240;
+  const bpFreq2 = 250 + frac * 650;
+  _minigunSpinNodes.noiseBp.frequency.setTargetAtTime(bpFreq1, t, 0.06);
+  _minigunSpinNodes.noiseBp2.frequency.setTargetAtTime(bpFreq2, t, 0.06);
+
+  // Motor oscillator: rotation rate. 6 barrels × spin-rad/s → per-second rotations → Hz
+  // At full speed (25 rad/s) ≈ 4 Hz mechanical rotation, ×6 barrels = 24 Hz chatter
+  const motorFreq = Math.max(1, (spinSpeed / (2 * Math.PI)) * 6);
+  _minigunSpinNodes.motorOsc.frequency.setTargetAtTime(motorFreq, t, 0.04);
+
+  // Volume: noise layer rises first (friction), motor layer kicks in from ~20% spin
+  const vol = frac < 0.05 ? 0 : Math.min(1, (frac - 0.05) / 0.95);
+  _minigunSpinNodes.noiseGain.gain.setTargetAtTime(vol * 0.22, t, 0.05);
+  const motorVol = frac < 0.2 ? 0 : Math.min(1, (frac - 0.2) / 0.8);
+  _minigunSpinNodes.motorGain.gain.setTargetAtTime(motorVol * 0.14, t, 0.05);
+  _minigunSpinNodes.masterGain.gain.setTargetAtTime(1, t, 0.05);
+}
+
+/**
+ * Stop and clean up the spin sound. Call when switching away from minigun.
+ */
+export function stopMinigunSpinWhine(): void {
+  if (!_minigunSpinNodes) return;
+  const ctx = getAudioCtx();
+  const t = ctx.currentTime;
+  _minigunSpinNodes.masterGain.gain.setTargetAtTime(0, t, 0.15);
+  const nodes = _minigunSpinNodes;
+  _minigunSpinNodes = null;
+  setTimeout(() => {
+    try { nodes.noiseSource.stop(); } catch { /* already stopped */ }
+    try { nodes.motorOsc.stop(); } catch { /* already stopped */ }
+  }, 800);
+}
+
 /** Play gunshot by weapon type (player weapons) */
 export function playGunshotWeapon(type: WeaponSoundType): void {
   switch (type) {
@@ -372,6 +563,7 @@ export function playGunshotWeapon(type: WeaponSoundType): void {
     case 'rifle': playGunshotRifle(); break;
     case 'shotgun': playGunshotShotgun(); break;
     case 'sniper': playGunshotSniper(); break;
+    case 'minigun': playGunshotMinigun(); break;
   }
 }
 

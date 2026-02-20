@@ -402,10 +402,11 @@ export class GameRoom {
    */
   private getWeaponDamage(weaponType: string): number {
     const damages: Record<string, number> = {
-      pistol: 25,  // PP7
-      rifle: 25,   // KF7 Soviet
-      shotgun: 12, // per pellet
-      sniper: 80,  // Sniper Rifle
+      pistol: 25,   // PP7
+      rifle: 25,    // KF7 Soviet
+      shotgun: 12,  // per pellet
+      sniper: 80,   // Sniper Rifle
+      minigun: 18,  // M134 Minigun (compensated by 20 rps)
     };
     return damages[weaponType] ?? 25;
   }
@@ -419,6 +420,7 @@ export class GameRoom {
       rifle: 50,
       shotgun: 20,
       sniper: 150,
+      minigun: 45,
     };
     return ranges[weaponType] ?? 50;
   }
@@ -440,10 +442,11 @@ export class GameRoom {
    */
   private getWeaponFireInterval(weaponType: string): number {
     const fireRates: Record<string, number> = {
-      pistol: 3, // 3 rounds/second
-      rifle: 8, // 8 rounds/second
-      shotgun: 1.2, // 1.2 rounds/second
-      sniper: 0.8, // 0.8 rounds/second
+      pistol: 3,      // 3 rounds/second
+      rifle: 8,       // 8 rounds/second
+      shotgun: 1.2,   // 1.2 rounds/second
+      sniper: 0.8,    // 0.8 rounds/second
+      minigun: 20,    // 20 rounds/second (1200 rpm)
     };
     const rate = fireRates[weaponType] ?? 3;
     return 1000 / rate; // Convert to ms between shots
