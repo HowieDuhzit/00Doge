@@ -275,22 +275,17 @@ export class RemotePlayer {
 
       let modelY: number;
       let colliderY: number;
-      if (getGroundHeight) {
-        // Terrain map (custom arena): snap model feet to terrain surface.
-        // Always use terrain raycaster for the visual Y — it's more reliable than server Y because:
-        //   1. Server spawn points use a fixed Y that may not match terrain at spread XZ coords.
-        //   2. A stale server mapId sends crossfire Y≈1.2 instead of custom arena Y≈15.
-        // Allow up to 3m above terrain (for jumps/ramps) before clamping back to ground.
-        const terrainY = getGroundHeight(pos.x, pos.z);
-        const serverFeetY = pos.y - yOffset;
-        // If server says player is close to or above terrain, trust server (jumping/ramps).
-        // If server Y is far below terrain, snap to terrain (stale Y or wrong-scale Y).
-        modelY = serverFeetY >= terrainY - 0.3 ? Math.min(serverFeetY, terrainY + 3) : terrainY;
-        colliderY = modelY + yOffset;
-      } else {
-        // Flat maps (crossfire/wasteland): floor is always at y=0, never let feet go below.
-        modelY = Math.max(0, pos.y - yOffset);
-        colliderY = pos.y;
+      // Trust server position directly — the server physics (character controller) places
+      // the player correctly on terrain. Don't apply local terrain raycasting to remote
+      // players because raycasts at spread XZ positions can miss terrain and return bad values.
+      // Exception: flat maps clamp to y=0 to prevent legacy wrong-Y-scale data from sinking
+      // players below the visible floor.
+      modelY = pos.y - yOffset;
+      colliderY = pos.y;
+      if (!getGroundHeight) {
+        // Flat maps (crossfire/wasteland): floor is always at y=0.
+        modelY = Math.max(0, modelY);
+        colliderY = Math.max(yOffset, colliderY);
       }
 
       this.rigidBody.setTranslation({ x: pos.x, y: colliderY, z: pos.z }, true);
@@ -452,16 +447,14 @@ export class RemotePlayer {
     const yOffset = this.spriteMode ? 1.0 : (this.customAnimator ? 1.0 : 1.2);
     const getGroundHeight = this.getGroundHeightProvider?.();
 
-    let modelY: number;
-    let colliderY: number;
-    if (getGroundHeight) {
-      // Terrain map: snap feet to terrain surface, place collider center above it
-      modelY = getGroundHeight(x, z);
-      colliderY = modelY + yOffset; // capsule center = feet + offset
-    } else {
-      // Flat map: clamp feet to floor
-      modelY = Math.max(0, y - yOffset);
-      colliderY = modelY + yOffset;
+    // Trust the server Y (which comes from the authoritative spawn position).
+    // For flat maps clamp to floor. For terrain maps just use server Y directly —
+    // local terrain raycasts at arbitrary XZ can miss and return bad values.
+    let modelY = y - yOffset;
+    let colliderY = y;
+    if (!getGroundHeight) {
+      modelY = Math.max(0, modelY);
+      colliderY = Math.max(yOffset, colliderY);
     }
 
     this.rigidBody.setTranslation({ x, y: colliderY, z }, true);

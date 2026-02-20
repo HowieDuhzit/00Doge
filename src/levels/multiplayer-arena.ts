@@ -273,10 +273,11 @@ export function getMultiplayerArenaDefaultSpawnPoint(): SpawnDef {
 export function getCustomArenaSpawnPoints(): SpawnDef[] {
   const base = { x: -1.32, z: 63.1 };
   const spread = 18;
-  // Y is intentionally high (+20) so physics/terrain-snap always places player above ground.
-  // Terrain height varies across the map so a single fixed Y would bury players at some points.
-  // The client corrects Y using getGroundHeight before calling setPosition.
-  const safeY = 14.63 + 20;
+  // Y=14.63 is the known terrain surface at the base spawn XZ.
+  // +2 safety buffer ensures physics doesn't start inside terrain geometry.
+  // Local player corrects Y via getGroundHeight before setPosition.
+  // Remote players follow server position directly (physics resolves them down quickly).
+  const safeY = 14.63 + 2;
   return [
     { x: base.x, y: safeY, z: base.z },
     { x: base.x + spread, y: safeY, z: base.z },
