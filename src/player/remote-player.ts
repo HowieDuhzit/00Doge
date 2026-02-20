@@ -267,31 +267,32 @@ export class RemotePlayer {
 
       // Use same position for collider and model so hitbox matches what you see
       const pos = interpolatedState.position;
-
-      this.rigidBody.setTranslation({ x: pos.x, y: pos.y, z: pos.z }, true);
-
-      // Model Y: offset from capsule center to feet.
-      // Capsule collider: halfHeight=0.9, radius=0.3 → feet = center - 1.2.
       const yOffset = this.spriteMode ? 1.0 : (this.customAnimator ? 1.0 : 1.2);
-      let modelY = pos.y - yOffset;
 
       // Resolve terrain provider per-frame — handles the case where GLB wasn't loaded yet
       // when the RemotePlayer was first constructed (common on high-latency live servers).
       const getGroundHeight = this.getGroundHeightProvider?.();
+
+      let modelY: number;
+      let colliderY: number;
       if (getGroundHeight) {
-        // Terrain maps (custom arena): clamp model feet to terrain surface (up and down).
+        // Terrain map: snap model feet to terrain surface; keep collider above it.
+        // Server Y may be stale/high if player just respawned from a fixed-Y spawn point.
         const terrainY = getGroundHeight(pos.x, pos.z);
-        if (Math.abs(terrainY - modelY) < 1.5) {
-          modelY = terrainY;
-        }
+        const serverFeetY = pos.y - yOffset;
+        // Only snap if we're within 5 units — don't snap while player is in the air jumping
+        modelY = Math.abs(terrainY - serverFeetY) < 5 ? terrainY : serverFeetY;
+        colliderY = modelY + yOffset;
       } else {
         // Flat maps (crossfire/wasteland): floor is always at y=0, never let feet go below.
-        modelY = Math.max(0, modelY);
+        modelY = Math.max(0, pos.y - yOffset);
+        colliderY = pos.y;
       }
 
+      this.rigidBody.setTranslation({ x: pos.x, y: colliderY, z: pos.z }, true);
       this.model.position.set(pos.x, modelY, pos.z);
 
-      // Shadow: match model or collider feet
+      // Shadow: match model feet
       if (!this.spriteMode) {
         this.shadowMesh.position.set(pos.x, modelY + 0.01, pos.z);
       }
@@ -444,15 +445,25 @@ export class RemotePlayer {
    * until the next snapshot arrives.
    */
   snapToPosition(x: number, y: number, z: number): void {
-    this.rigidBody.setTranslation({ x, y, z }, true);
     const yOffset = this.spriteMode ? 1.0 : (this.customAnimator ? 1.0 : 1.2);
     const getGroundHeight = this.getGroundHeightProvider?.();
-    const modelY = getGroundHeight
-      ? getGroundHeight(x, z)
-      : Math.max(0, y - yOffset);
+
+    let modelY: number;
+    let colliderY: number;
+    if (getGroundHeight) {
+      // Terrain map: snap feet to terrain surface, place collider center above it
+      modelY = getGroundHeight(x, z);
+      colliderY = modelY + yOffset; // capsule center = feet + offset
+    } else {
+      // Flat map: clamp feet to floor
+      modelY = Math.max(0, y - yOffset);
+      colliderY = modelY + yOffset;
+    }
+
+    this.rigidBody.setTranslation({ x, y: colliderY, z }, true);
     this.model.position.set(x, modelY, z);
     this.shadowMesh.position.set(x, modelY + 0.01, z);
-    this.smoothedPosition.set(x, y, z);
+    this.smoothedPosition.set(x, colliderY, z);
     this.hasInitialPosition = true;
   }
 

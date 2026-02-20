@@ -717,13 +717,24 @@ export class Game {
 
         if (isLocalPlayer) {
           this.player.respawn();
-          this.player.setPosition(event.position.x, event.position.y, event.position.z);
+
+          // On terrain maps the server spawn Y may not match the actual ground height at
+          // that XZ (spread spawn points all share the same fixed Y). Query local terrain
+          // height so the player is placed on the surface, not inside or below it.
+          let spawnY = event.position.y;
+          if (this.customQuickplay && this.getGroundHeight) {
+            const terrainY = this.getGroundHeight(event.position.x, event.position.z);
+            // Add a small offset so feet land above terrain, not exactly on it
+            spawnY = terrainY + 0.1;
+          }
+
+          this.player.setPosition(event.position.x, spawnY, event.position.z);
 
           this.deathOverlay.hide();
           this.respawnFlash?.show();
           playRespawnSound();
 
-          console.log(`[Game] Respawned at (${event.position.x}, ${event.position.y}, ${event.position.z})`);
+          console.log(`[Game] Respawned at (${event.position.x}, ${spawnY}, ${event.position.z}) (server Y was ${event.position.y})`);
         } else {
           // Reset remote player after respawn and snap to respawn position immediately
           const remotePlayer = this.remotePlayerManager?.getPlayer(event.playerId);
