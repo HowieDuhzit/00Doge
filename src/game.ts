@@ -1417,21 +1417,40 @@ export class Game {
 
     }
 
+    // Re-read in-vehicle state after vehicle manager update — player may have just entered
+    // this frame, and the pre-update value would be stale (false) causing the player physics
+    // to fight the dynamic warthog body and get the player stuck.
+    const playerInVehicleNow = this.vehicleManager?.isLocalPlayerInVehicle() ?? false;
+
+    // If the player just entered this frame, immediately teleport them to their seat so
+    // the dynamic vehicle body has no chance to push the player capsule.
+    if (playerInVehicleNow && !playerInVehicle && this.vehicleManager) {
+      const localVehicle = this.vehicleManager.getLocalVehicle();
+      const localSeat = this.vehicleManager.getLocalSeat();
+      if (localVehicle && localSeat) {
+        const seatPos = localVehicle.getSeatWorldPosition(localSeat);
+        this.player.setBodyPosition(seatPos.x, seatPos.y, seatPos.z);
+      }
+    }
+
     // Fixed-step physics
     this.physicsAccumulator += dt;
     while (this.physicsAccumulator >= PHYSICS_STEP) {
       // Skip player movement while in a vehicle — vehicle manager pins the capsule
       // and overrides the camera; running player.update() would fight both.
-      if (!playerInVehicle) {
+      if (!playerInVehicleNow) {
         this.player.update(this.input, PHYSICS_STEP);
       }
+      // Vehicle controller MUST step in sync with world.step() —
+      // calling it at render rate (once per frame with variable dt) desynchronises
+      // suspension forces from physics integration, causing the body to sink.
+      this.vehicleManager?.physicsStep(PHYSICS_STEP);
       this.physics.step();
       this.physicsAccumulator -= PHYSICS_STEP;
     }
 
-    // Pin player capsule to vehicle seat (after physics, so kinematic body is stable).
-    // Uses setBodyPosition so the vehicle camera set above is not overwritten.
-    if (playerInVehicle && this.vehicleManager) {
+    // Pin player capsule to vehicle seat (after physics, so vehicle body is settled).
+    if (playerInVehicleNow && this.vehicleManager) {
       const localVehicle = this.vehicleManager.getLocalVehicle();
       const localSeat = this.vehicleManager.getLocalSeat();
       if (localVehicle && localSeat) {
@@ -2285,6 +2304,9 @@ export class Game {
           envResult.colliderData.vertices,
           envResult.colliderData.indices,
         );
+        // Force queryPipeline refresh so vehicle wheel raycasts see the terrain
+        // immediately on the first physicsStep (before the next world.step()).
+        this.physics.world.updateSceneQueries();
       } catch (e) {
         console.warn('[Game] Trimesh collider failed, using floor fallback only:', e);
       }
@@ -2437,41 +2459,41 @@ export class Game {
     this.customGroundLevel = groundLevel;
     this.customSpawnCenter = { x: layoutCenterX, z: layoutCenterZ };
 
-    // Spawn vehicles (Warthog) in custom quickplay / multiplayer arena
-    // Only spawn in single-player custom quickplay or when it's the custom multiplayer map.
-    // In multiplayer, the server sends vehicle state via snapshots; we just need local init too.
     if (this.vehicleManager && !this.editorMode) {
       this.vehicleManager.getGroundHeight = this.getGroundHeight;
-
-      // Parse vehicles from config if defined, otherwise use default Warthog spawn
-      const vehicleDefs = (config as any).vehicles as Array<{ type: string; x: number; z: number; rotation?: number }> | undefined;
-      if (vehicleDefs?.length) {
-        for (const vd of vehicleDefs) {
-          if (vd.type === 'warthog') {
-            this.vehicleManager.spawnVehicle({
-              type: 'warthog',
-              x: layoutCenterX + vd.x,
-              z: layoutCenterZ + vd.z,
-              rotation: vd.rotation,
-            });
-          }
-        }
-      } else {
-        // Default: one Warthog near arena center
-        const vx = layoutCenterX + 5;
-        const vz = layoutCenterZ - 2;
-        this.vehicleManager.spawnVehicle({
-          id: 'warthog_0',
-          type: 'warthog',
-          x: vx,
-          z: vz,
-          rotation: 0,
-        });
-      }
 
       // In multiplayer, also set local player ID (may not be set yet if constructor ran before connect)
       if (this.networkMode === 'client' && this.networkManager?.playerId) {
         this.vehicleManager.setLocalPlayerId(this.networkManager.playerId);
+      }
+
+      // Spawn vehicles locally only in single-player.
+      // In multiplayer the server owns vehicle state and sends it via snapshot;
+      // updateFromSnapshot() will spawn the vehicle when the first snapshot arrives.
+      // Spawning here AND from snapshot puts two warthogs on top of each other.
+      if (this.networkMode !== 'client') {
+        const vehicleDefs = (config as any).vehicles as Array<{ type: string; x: number; z: number; rotation?: number }> | undefined;
+        if (vehicleDefs?.length) {
+          for (const vd of vehicleDefs) {
+            if (vd.type === 'warthog') {
+              this.vehicleManager.spawnVehicle({
+                type: 'warthog',
+                x: layoutCenterX + vd.x,
+                z: layoutCenterZ + vd.z,
+                rotation: vd.rotation,
+              });
+            }
+          }
+        } else {
+          // Default: one Warthog near arena center
+          this.vehicleManager.spawnVehicle({
+            id: 'warthog_0',
+            type: 'warthog',
+            x: layoutCenterX + 5,
+            z: layoutCenterZ - 2,
+            rotation: 0,
+          });
+        }
       }
     }
 

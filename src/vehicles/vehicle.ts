@@ -1,13 +1,10 @@
 /**
- * Vehicle — Warthog physics simulation and state.
+ * Vehicle — Warthog physics using Rapier DynamicRayCastVehicleController.
  *
- * Physics model inspired by Halo CE's M12 Warthog:
- * - Kinematic rigid body (matches existing player architecture)
- * - Raycast suspension (4 virtual wheel spring contacts)
- * - Traction/grip model (speed-dependent steering, lateral friction)
- * - Engine power curve
- * - Rolls on hard cornering
- * - Can catch air and re-land
+ * Physics model:
+ * - Dynamic rigid body (full collision response)
+ * - DynamicRayCastVehicleController (spring-damper suspension, tire friction)
+ * - Per-wheel engine force, braking, steering
  */
 
 import * as THREE from 'three';
@@ -15,6 +12,8 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { PhysicsWorld } from '../core/physics-world';
 import {
   WARTHOG,
+  WARTHOG_PHYSICS,
+  WHEEL_CONNECTION_POINTS,
   SEAT_ORDER,
   emptyOccupancy,
   type VehicleOccupancy,
@@ -24,18 +23,16 @@ import {
 import { buildWarthogMesh, updateWarthogWheels } from './warthog-mesh';
 import { playVehicleImpact } from '../audio/vehicle-sounds';
 
-// ─── Wheel Ray Positions (local space, from vehicle center) ──────────────────
-// Y offset = WHEEL_RADIUS - GROUND_CLEARANCE (same as visual wheel rest position)
-// so that restHeight = position.y + wo.y - SUSPENSION_REST ≈ groundY at rest
-const WHEEL_Y = WARTHOG.WHEEL_RADIUS - WARTHOG.GROUND_CLEARANCE; // ≈ -0.07
-const WHEEL_OFFSETS = [
-  { x: -1.1, y: WHEEL_Y, z:  1.18 }, // FL
-  { x:  1.1, y: WHEEL_Y, z:  1.18 }, // FR
-  { x: -1.1, y: WHEEL_Y, z: -1.0  }, // RL
-  { x:  1.1, y: WHEEL_Y, z: -1.0  }, // RR
-];
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const DOWN = new THREE.Vector3(0, -1, 0);
+function extractYawFromQuat(q: { x: number; y: number; z: number; w: number }): number {
+  return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+}
+
+function quatFromYaw(yaw: number): { x: number; y: number; z: number; w: number } {
+  const half = yaw / 2;
+  return { x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) };
+}
 
 export class Vehicle {
   readonly id: string;
@@ -45,28 +42,34 @@ export class Vehicle {
   // Three.js visual
   mesh: THREE.Group;
 
-  // Physics body (kinematic)
+  // Physics
   private body: RAPIER.RigidBody;
   readonly collider: RAPIER.Collider;
+  private controller: RAPIER.DynamicRayCastVehicleController;
+  private physics: PhysicsWorld;
 
-  // World-space kinematics
+  // World-space state (read back from physics body each frame)
   private position = new THREE.Vector3();
-  private velocity = new THREE.Vector3();        // world-space velocity
-  private yaw = 0;                               // heading (radians)
-  private angularVelocity = 0;                   // yaw rate (rad/s)
-  private rollAngle = 0;                         // visual lean
-  private pitchAngle = 0;                        // visual pitch (nose up/down)
-  private airTime = 0;                           // time since last ground contact
+  private velocity = new THREE.Vector3();
+  private yaw = 0;
+  private rollAngle = 0;
+  private pitchAngle = 0;
+  private _speed = 0;
+  private _lastDt = 1 / 60;
+  private _debugStep = 0;
 
-  // Wheel suspension state
-  private suspensionHeights = [0, 0, 0, 0];     // deviation from rest (m)
-  private suspensionVelocities = [0, 0, 0, 0];  // for spring damping
-  private wheelsOnGround: boolean[] = [false, false, false, false];
+  // Cached suspension lengths for mesh update (populated in update(), stale for remote)
+  private _suspLengths: number[] = [
+    WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH,
+    WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH,
+    WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH,
+    WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH,
+  ];
 
-  // Input state (set by controller each frame)
-  private throttle = 0;      // -1..1
-  private steering = 0;      // -1..1 (target)
-  private currentSteering = 0; // smoothed
+  // Input state (set by VehicleManager each frame)
+  private throttle = 0;
+  private steering = 0;
+  private currentSteering = 0;
   private braking = false;
   private handbrake = false;
 
@@ -78,18 +81,8 @@ export class Vehicle {
   // Occupancy
   occupancy: VehicleOccupancy;
 
-  // Reusable vectors
-  private readonly _fwd = new THREE.Vector3();
-  private readonly _right = new THREE.Vector3();
-  private readonly _worldWheelPos = new THREE.Vector3();
-  private readonly _nextPos = new THREE.Vector3();
-  private readonly _quatFromYaw = new THREE.Quaternion();
+  // Reusable Euler for mesh rotation
   private readonly _euler = new THREE.Euler(0, 0, 0, 'YXZ');
-
-  // Last dt used — needed for frame-rate-correct wheel spin in updateMeshFromState
-  private _lastDt = 1 / 60;
-
-  private physics: PhysicsWorld;
 
   constructor(
     id: string,
@@ -110,18 +103,50 @@ export class Vehicle {
     this.mesh = buildWarthogMesh();
     this.mesh.position.copy(this.position);
 
-    // Physics body — kinematic position-based (like player)
     const RAPIER = physics.rapier;
-    const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
-      .setTranslation(startX, startY + WARTHOG.HALF_HEIGHT + 0.05, startZ);
+    const startQuat = quatFromYaw(startYaw);
+
+    // Dynamic rigid body
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(startX, startY + WARTHOG.HALF_HEIGHT + 0.05, startZ)
+      .setRotation(startQuat)
+      .setLinearDamping(WARTHOG_PHYSICS.LINEAR_DAMPING)
+      .setAngularDamping(WARTHOG_PHYSICS.ANGULAR_DAMPING);
     this.body = physics.world.createRigidBody(bodyDesc);
 
-    // Collider: box matching chassis
+    // Collider with density derived from target mass
+    const bodyVolume = 2 * WARTHOG.HALF_WIDTH * 2 * WARTHOG.HALF_HEIGHT * 2 * WARTHOG.HALF_LENGTH;
     const colDesc = RAPIER.ColliderDesc
       .cuboid(WARTHOG.HALF_WIDTH, WARTHOG.HALF_HEIGHT, WARTHOG.HALF_LENGTH)
       .setFriction(0.5)
-      .setRestitution(0.2);
+      .setRestitution(0.1)
+      .setDensity(WARTHOG_PHYSICS.MASS / bodyVolume);
     this.collider = physics.world.createCollider(colDesc, this.body);
+
+    // Vehicle controller
+    this.controller = physics.world.createVehicleController(this.body);
+
+    // Explicitly set axis conventions: Y=up (1), Z=forward (2)
+    this.controller.indexUpAxis = 1;
+    this.controller.setIndexForwardAxis = 2;
+
+    for (let i = 0; i < 4; i++) {
+      const cp = WHEEL_CONNECTION_POINTS[i];
+      this.controller.addWheel(
+        { x: cp.x, y: cp.y, z: cp.z },  // chassis connection point (local)
+        { x: 0, y: -1, z: 0 },           // suspension direction (down)
+        { x: 1, y: 0, z: 0 },            // axle axis (X = rolling axis)
+        WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH,
+        WARTHOG.WHEEL_RADIUS,
+      );
+      this.controller.setWheelSuspensionStiffness(i,  WARTHOG_PHYSICS.SUSPENSION_STIFFNESS);
+      this.controller.setWheelSuspensionCompression(i, WARTHOG_PHYSICS.SUSPENSION_DAMPING_COMP);
+      this.controller.setWheelSuspensionRelaxation(i,  WARTHOG_PHYSICS.SUSPENSION_DAMPING_REL);
+      this.controller.setWheelMaxSuspensionForce(i,    WARTHOG_PHYSICS.SUSPENSION_MAX_FORCE);
+      this.controller.setWheelMaxSuspensionTravel(i,   WARTHOG_PHYSICS.SUSPENSION_MAX_TRAVEL);
+      this.controller.setWheelFrictionSlip(i,          WARTHOG_PHYSICS.FRICTION_SLIP);
+      this.controller.setWheelSideFrictionStiffness(i, WARTHOG_PHYSICS.SIDE_FRICTION);
+    }
 
     this.updateMeshFromState();
   }
@@ -134,7 +159,6 @@ export class Vehicle {
   setHandbrake(v: boolean): void { this.handbrake = v; }
 
   setTurretAim(yaw: number, pitch: number): void {
-    // Clamp turret yaw relative to vehicle forward
     const halfRange = WARTHOG.TURRET_YAW_RANGE / 2;
     this.turretYaw = Math.max(-halfRange, Math.min(halfRange, yaw));
     this.turretPitch = Math.max(
@@ -209,15 +233,13 @@ export class Vehicle {
    * Get gun barrel tip position in world space (for projectile origin).
    */
   getGunTipWorld(): THREE.Vector3 {
-    const localOffset = { x: 0, y: 1.1, z: -2.0 }; // tip of barrel
     const out = new THREE.Vector3();
-
-    const cos = Math.cos(this.yaw + this.turretYaw);
-    const sin = Math.sin(this.yaw + this.turretYaw);
-    out.x = this.position.x + cos * localOffset.x - sin * localOffset.z;
-    out.z = this.position.z + sin * localOffset.x + cos * localOffset.z;
-    out.y = this.position.y + localOffset.y + Math.sin(this.turretPitch) * 0.9;
-
+    const mountLocal = { x: 0, y: 1.23, z: -1.1 };
+    const vcos = Math.cos(this.yaw), vsin = Math.sin(this.yaw);
+    out.x = this.position.x + vcos * mountLocal.x - vsin * mountLocal.z;
+    out.z = this.position.z + vsin * mountLocal.x + vcos * mountLocal.z;
+    out.y = this.position.y + mountLocal.y;
+    out.addScaledVector(this.getGunDirection(), 0.6);
     return out;
   }
 
@@ -227,164 +249,103 @@ export class Vehicle {
   getGunDirection(): THREE.Vector3 {
     const totalYaw = this.yaw + this.turretYaw;
     return new THREE.Vector3(
-      -Math.sin(totalYaw) * Math.cos(this.turretPitch),
+      Math.sin(totalYaw) * Math.cos(this.turretPitch),
       Math.sin(this.turretPitch),
-      -Math.cos(totalYaw) * Math.cos(this.turretPitch)
+      Math.cos(totalYaw) * Math.cos(this.turretPitch)
     ).normalize();
   }
 
-  // ── Physics Update ───────────────────────────────────────────────────────────
+  // ── Physics Step (called inside fixed loop, before world.step) ───────────────
 
-  update(dt: number, getGroundHeight?: (x: number, z: number, excludeCollider?: RAPIER.Collider) => number): void {
-    // Clamp dt to prevent large jumps from tab switching / stalls
+  /**
+   * Apply vehicle controller forces and read state back.
+   * MUST be called once per fixed physics step, just before physics.world.step().
+   * Calling it at render rate (variable dt) desynchronises forces from integration.
+   */
+  physicsStep(dt: number): void {
+    // Apply wheel inputs
+    const steerAngle = this.currentSteering * WARTHOG.MAX_STEER_ANGLE;
+    for (let i = 0; i < 4; i++) {
+      this.controller.setWheelEngineForce(i, this.throttle * WARTHOG_PHYSICS.ENGINE_FORCE);
+
+      let brakeF = 0;
+      if (this.braking) brakeF = WARTHOG_PHYSICS.MAX_BRAKE_FORCE;
+      if (this.handbrake && i >= 2) brakeF = WARTHOG_PHYSICS.HANDBRAKE_FORCE;
+      this.controller.setWheelBrake(i, brakeF);
+
+      if (i < 2) this.controller.setWheelSteering(i, -steerAngle);
+    }
+
+    // Raycast suspension + apply forces to rigid body
+    this.controller.updateVehicle(
+      dt,
+      undefined,
+      undefined,
+      (c) => c.handle !== this.collider.handle,
+    );
+
+    // --- DEBUG: log every 2 seconds to diagnose suspension issues ---
+    this._debugStep++;
+    if (this._debugStep % 120 === 1) {
+      const t0 = this.body.translation();
+      const contact0 = this.controller.wheelIsInContact(0);
+      const suspLen0 = this.controller.wheelSuspensionLength(0);
+      const suspForce0 = this.controller.wheelSuspensionForce(0);
+      const hardPt0 = this.controller.wheelHardPoint(0);
+      const contactPt0 = this.controller.wheelContactPoint(0);
+      console.log(
+        `[Vehicle ${this.id}] body.y=${t0.y.toFixed(3)}` +
+        ` | w0: contact=${contact0}` +
+        ` suspLen=${suspLen0?.toFixed(3) ?? 'N/A'}` +
+        ` suspForce=${suspForce0?.toFixed(1) ?? 'N/A'}` +
+        ` hardPt.y=${hardPt0?.y?.toFixed(3) ?? 'N/A'}` +
+        ` contactPt.y=${contactPt0?.y?.toFixed(3) ?? 'N/A'}`,
+      );
+    }
+
+    // Cache suspension lengths for visual wheel offsets
+    for (let i = 0; i < 4; i++) {
+      this._suspLengths[i] = this.controller.wheelSuspensionLength(i)
+        ?? WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH;
+    }
+
+    // Read body state (position/velocity from previous world.step result)
+    const t = this.body.translation();
+    const prevVelY = this.velocity.y;
+    this.position.set(t.x, t.y - WARTHOG.HALF_HEIGHT, t.z);
+
+    const rot = this.body.rotation();
+    this.yaw = extractYawFromQuat(rot);
+
+    const v = this.body.linvel();
+    this.velocity.set(v.x, v.y, v.z);
+    this._speed = Math.sqrt(v.x * v.x + v.z * v.z);
+
+    if (prevVelY < -3 && v.y > prevVelY * 0.5) {
+      playVehicleImpact(Math.min(1, -prevVelY / 10));
+    }
+  }
+
+  // ── Per-frame visual update ───────────────────────────────────────────────────
+
+  update(dt: number): void {
     dt = Math.min(dt, 1 / 20);
     this._lastDt = dt;
     this.turretFireCooldown = Math.max(0, this.turretFireCooldown - dt);
 
-    // Forward / right vectors from yaw
-    this._fwd.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-    this._right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    // Smooth steering (more responsive at low speed)
+    const speedFactor = Math.max(0.25, 1 - this._speed / (WARTHOG.MAX_SPEED * 1.8));
+    this.currentSteering += (this.steering - this.currentSteering)
+      * Math.min(1, dt * WARTHOG.STEER_RATE * speedFactor * 4);
 
-    // ── Visual Suspension (cosmetic only — actual Y handled by ground clamp) ─────
-    // Measures how far each wheel is compressed vs rest, for visual bounce
-    const cos = Math.cos(this.yaw);
-    const sin = Math.sin(this.yaw);
-    for (let i = 0; i < 4; i++) {
-      const wo = WHEEL_OFFSETS[i];
-      this._worldWheelPos.set(
-        this.position.x + cos * wo.x - sin * wo.z,
-        this.position.y + wo.y,
-        this.position.z + sin * wo.x + cos * wo.z,
-      );
-
-      let gY = this.position.y - WARTHOG.GROUND_CLEARANCE; // default: flat ground at vehicle base
-      if (getGroundHeight) {
-        gY = getGroundHeight(this._worldWheelPos.x, this._worldWheelPos.z, this.collider);
-      }
-
-      // idealWheelY = where the wheel center should be if touching ground
-      // restWheelY  = where the wheel center actually is in world space
-      const idealWheelY = gY + WARTHOG.WHEEL_RADIUS;
-      const restWheelY  = this.position.y + WHEEL_Y; // WHEEL_Y = WHEEL_RADIUS - GROUND_CLEARANCE
-      const rawOffset   = idealWheelY - restWheelY;  // positive = terrain is above expected → compression
-
-      const targetOffset = Math.max(
-        -WARTHOG.SUSPENSION_TRAVEL * 0.9,
-        Math.min(WARTHOG.SUSPENSION_TRAVEL * 0.5, rawOffset),
-      );
-      this.suspensionHeights[i] += (targetOffset - this.suspensionHeights[i]) * Math.min(1, dt * 15);
-    }
-
-    // ── Movement (based on previous-frame grounded state to avoid oscillation) ──
-    // Use airTime hysteresis: treat vehicle as grounded if recently touched ground
-    const wasGrounded = this.airTime < 0.12;
-
-    const speed = this.velocity.length();
-    const fwdSpeed = this.velocity.dot(this._fwd);
-
-    if (wasGrounded) {
-      // Steering smoothing (Halo-style: more responsive at low speed)
-      const steerReduceFactor = Math.max(0.25, 1 - speed / (WARTHOG.MAX_SPEED * 1.8));
-      this.currentSteering += (this.steering - this.currentSteering) * Math.min(1, dt * WARTHOG.STEER_RATE * steerReduceFactor * 4);
-
-      // Apply steering → angular velocity
-      const turnInput = this.currentSteering * steerReduceFactor * (fwdSpeed < 0 ? -1 : 1);
-      const targetAngularVel = turnInput * WARTHOG.STEER_RATE * (speed > 0.1 ? 1 : 0);
-      this.angularVelocity += (targetAngularVel - this.angularVelocity) * Math.min(1, dt * 8);
-
-      // Braking
-      if (this.braking || this.handbrake) {
-        const brakeForce = WARTHOG.BRAKE_FORCE * (this.handbrake ? 2 : 1);
-        const decel = Math.min(speed, brakeForce * dt);
-        if (speed > 0.01) {
-          this.velocity.addScaledVector(this.velocity.clone().normalize(), -decel);
-        }
-      }
-
-      // Engine force
-      if (!this.braking) {
-        const maxSpeed = this.throttle > 0 ? WARTHOG.MAX_SPEED : WARTHOG.MAX_REVERSE_SPEED;
-        const currentFwdSpeed = Math.abs(fwdSpeed);
-        if (Math.abs(this.throttle) > 0.01 && currentFwdSpeed < maxSpeed) {
-          const powerFactor = 1 - (currentFwdSpeed / maxSpeed) * 0.6;
-          this.velocity.addScaledVector(this._fwd, this.throttle * WARTHOG.ACCELERATION * dt * powerFactor);
-        }
-      }
-
-      // Natural drag
-      if (speed > 0.01) {
-        this.velocity.addScaledVector(this.velocity.clone().normalize(), -Math.min(speed, WARTHOG.DRAG * dt));
-      }
-
-      // Lateral friction — frame-rate independent via exponential decay.
-      // gripCoeff ≈ 50 gives tight grip; ≈ 2 gives drifty handbrake feel.
-      const gripCoeff = this.handbrake ? 2.0 : 50.0;
-      const lateralSpeed = this.velocity.dot(this._right);
-      const lateralFactor = 1.0 - Math.exp(-gripCoeff * dt);
-      this.velocity.addScaledVector(this._right, -lateralSpeed * lateralFactor);
-
-      // Don't let the vehicle sink through ground while grounded
-      if (this.velocity.y < 0) this.velocity.y = 0;
-
-    } else {
-      // Airborne: gravity, minimal air drag
-      this.velocity.y -= 9.81 * dt;
-      this.velocity.x *= Math.exp(-0.3 * dt);
-      this.velocity.z *= Math.exp(-0.3 * dt);
-      // Angular damping in the air
-      this.angularVelocity *= Math.exp(-2.0 * dt);
-    }
-
-    // ── Integrate Position ───────────────────────────────────────────────────────
-    this.yaw += this.angularVelocity * dt;
-    this._nextPos.copy(this.position).addScaledVector(this.velocity, dt);
-
-    // ── Ground Clamping — ALWAYS applied, not conditional on grounded state ──────
-    // This prevents the oscillation where vehicle falls through ground then snaps back.
-    let onGround = false;
-    if (getGroundHeight) {
-      const gY = getGroundHeight(this._nextPos.x, this._nextPos.z, this.collider);
-      const minY = gY + WARTHOG.GROUND_CLEARANCE;
-      // Snap to ground if within 0.05m — prevents floating/oscillation
-      if (this._nextPos.y < minY + 0.05) {
-        if (this.velocity.y < -3 && this._nextPos.y < minY) {
-          playVehicleImpact(Math.min(1, -this.velocity.y / 10));
-        }
-        this._nextPos.y = minY;
-        this.velocity.y = 0;
-        onGround = true;
-      }
-    } else {
-      // Flat ground fallback
-      if (this._nextPos.y < WARTHOG.GROUND_CLEARANCE + 0.05) {
-        this._nextPos.y = WARTHOG.GROUND_CLEARANCE;
-        this.velocity.y = 0;
-        onGround = true;
-      }
-    }
-
-    // Update airtime counter
-    this.airTime = onGround ? 0 : this.airTime + dt;
-
-    this.position.copy(this._nextPos);
-
-    // ── Visual Roll ──────────────────────────────────────────────────────────────
-    const targetRoll = -this.angularVelocity * Math.min(speed / 8, 1) * 0.22;
+    // Visual roll/pitch (cosmetic lean)
+    const angVel = this.body.angvel();
+    const targetRoll = -angVel.y * Math.min(this._speed / 8, 1) * 0.22;
     this.rollAngle += (targetRoll - this.rollAngle) * Math.min(1, dt * 5);
 
     const targetPitch = -this.throttle * 0.04 + (this.braking ? 0.06 : 0);
     this.pitchAngle += (targetPitch - this.pitchAngle) * Math.min(1, dt * 4);
 
-    // ── Update Kinematic Body ────────────────────────────────────────────────────
-    this.body.setNextKinematicTranslation({
-      x: this.position.x,
-      y: this.position.y + WARTHOG.HALF_HEIGHT,
-      z: this.position.z,
-    });
-    this._quatFromYaw.setFromEuler(new THREE.Euler(0, this.yaw, 0));
-    this.body.setNextKinematicRotation(this._quatFromYaw);
-
-    // ── Update Mesh ──────────────────────────────────────────────────────────────
     this.updateMeshFromState();
   }
 
@@ -395,19 +356,27 @@ export class Vehicle {
     this._euler.set(this.pitchAngle, this.yaw, this.rollAngle);
     this.mesh.quaternion.setFromEuler(this._euler);
 
-    // Wheel spin: physically correct omega = v/r, delta_angle = omega * dt
-    // Recompute fwd here because applyNetState may not have called update()
-    const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+    // Wheel spin from forward speed
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
     const fwdSpeed = this.velocity.x * fx + this.velocity.z * fz;
     const spinAngle = (fwdSpeed / WARTHOG.WHEEL_RADIUS) * this._lastDt;
+
+    // Suspension offsets from cached controller lengths (compression = positive)
+    const suspOffsets: [number, number, number, number] = [
+      WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH - this._suspLengths[0],
+      WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH - this._suspLengths[1],
+      WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH - this._suspLengths[2],
+      WARTHOG_PHYSICS.SUSPENSION_REST_LENGTH - this._suspLengths[3],
+    ];
+
     updateWarthogWheels(
       this.mesh,
       spinAngle,
       this.currentSteering * (WARTHOG.MAX_STEER_ANGLE * 0.6),
-      this.suspensionHeights as [number, number, number, number],
+      suspOffsets,
     );
 
-    // Update turret orientation
+    // Turret orientation
     const gunMount = (this.mesh as any).gunMount as THREE.Group;
     const pitchGroup = (this.mesh as any).gunPitchGroup as THREE.Group;
     if (gunMount) gunMount.rotation.y = this.turretYaw;
@@ -441,13 +410,22 @@ export class Vehicle {
 
   /**
    * Apply network state update (for remote vehicles).
+   * Teleports the dynamic body to the authoritative position; physics handles the rest.
    */
   applyNetState(state: VehicleNetState): void {
+    const bodyY = state.position.y + WARTHOG.HALF_HEIGHT;
+    this.body.setTranslation({ x: state.position.x, y: bodyY, z: state.position.z }, true);
+    const q = quatFromYaw(state.yaw);
+    this.body.setRotation(q, true);
+    this.body.setLinvel({ x: state.velocityX, y: 0, z: state.velocityZ }, true);
+    this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+
     this.position.set(state.position.x, state.position.y, state.position.z);
     this.yaw = state.yaw;
     this.rollAngle = state.roll;
     this.pitchAngle = state.pitch;
     this.velocity.set(state.velocityX, 0, state.velocityZ);
+    this._speed = Math.sqrt(state.velocityX ** 2 + state.velocityZ ** 2);
     this.turretYaw = state.turretYaw;
     this.turretPitch = state.turretPitch;
     this.occupancy = { ...state.occupancy };
@@ -464,15 +442,16 @@ export class Vehicle {
   }
 
   getSpeed(): number {
-    return this.velocity.length();
+    return this._speed;
   }
 
   getVelocity(): { x: number; z: number } {
     return { x: this.velocity.x, z: this.velocity.z };
   }
 
-  dispose(physics: PhysicsWorld): void {
-    physics.world.removeCollider(this.collider, false);
-    physics.world.removeRigidBody(this.body);
+  dispose(): void {
+    this.physics.world.removeVehicleController(this.controller);
+    this.physics.world.removeCollider(this.collider, false);
+    this.physics.world.removeRigidBody(this.body);
   }
 }

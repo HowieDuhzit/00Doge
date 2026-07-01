@@ -154,6 +154,9 @@ export class VehicleManager {
   // Ground height provider
   getGroundHeight?: (x: number, z: number, excludeCollider?: RAPIER.Collider) => number;
 
+  // Cached multiplayer flag — set each frame by update(), used by physicsStep()
+  private _isMultiplayer = false;
+
   constructor(scene: THREE.Scene, physics: PhysicsWorld) {
     this.scene = scene;
     this.physics = physics;
@@ -191,7 +194,7 @@ export class VehicleManager {
     if (!v) return;
     this.scene.remove(v.mesh);
     this.colliderToVehicle.delete(v.collider.handle);
-    v.dispose(this.physics);
+    v.dispose();
     this.vehicles.delete(id);
     this.interpolators.delete(id);
 
@@ -327,6 +330,7 @@ export class VehicleManager {
     playerPos: THREE.Vector3,
     isMultiplayer: boolean,
   ): void {
+    this._isMultiplayer = isMultiplayer;
     const localVehicle = this.getLocalVehicle();
 
     // ── E to enter/exit ──────────────────────────────────────────────────────────
@@ -374,12 +378,12 @@ export class VehicleManager {
       }
     }
 
-    // ── Physics update (only for vehicle we're driving) ───────────────────────────
+    // ── Per-frame visual update (steering smooth, mesh, roll/pitch lean) ─────────
+    // Physics forces are applied in physicsStep(), called inside the fixed loop.
     for (const [id, vehicle] of this.vehicles) {
       const isLocalDriverVehicle = id === this.localVehicleId && this.localSeat === 'driver';
-
       if (isLocalDriverVehicle || !isMultiplayer) {
-        vehicle.update(dt, this.getGroundHeight);
+        vehicle.update(dt);
       }
     }
 
@@ -419,6 +423,19 @@ export class VehicleManager {
 
     // ── Send state to server (driver only, at caller's 20Hz rate) ─────────────────
     // Called by game.ts tick at 20Hz
+  }
+
+  /**
+   * Called once per fixed physics step, just before physics.world.step().
+   * Drives the vehicle controller raycasts and applies suspension/traction forces.
+   */
+  physicsStep(dt: number): void {
+    for (const [id, vehicle] of this.vehicles) {
+      const isLocalDriverVehicle = id === this.localVehicleId && this.localSeat === 'driver';
+      if (isLocalDriverVehicle || !this._isMultiplayer) {
+        vehicle.physicsStep(dt);
+      }
+    }
   }
 
   /**

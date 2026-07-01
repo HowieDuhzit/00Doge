@@ -512,9 +512,9 @@ export function updateWarthogWheels(
     // Sign flip compensates for right-side wheels being rotated 180° on Y
     w.rotation.x += spinAngle * (w.position.x < 0 ? 1 : -1);
 
-    // Steer (front wheels only)
+    // Steer (front wheels only) — same sign for both sides; right wheels have base π rotation
     if (i < 2) {
-      w.rotation.y = (w.position.x > 0 ? Math.PI : 0) + steerAngle * (w.position.x < 0 ? 1 : -1);
+      w.rotation.y = (w.position.x > 0 ? Math.PI : 0) - steerAngle;
     }
   }
 }

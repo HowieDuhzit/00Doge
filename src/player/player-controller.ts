@@ -194,6 +194,15 @@ export class PlayerController {
     this.fpsCamera.setPosition(x, eyeY, z);
   }
 
+  /**
+   * Pin the physics body to a world position without touching the camera or crouching state.
+   * Used while seated in a vehicle so the player collider tracks the seat.
+   */
+  setBodyPosition(x: number, y: number, z: number): void {
+    const bodyY = y + this.currentHalfHeight + PLAYER_RADIUS;
+    this.body.setTranslation(new RAPIER.Vector3(x, bodyY, z), true);
+  }
+
   hasKey(keyId: string): boolean {
     return this.keys.has(keyId);
   }

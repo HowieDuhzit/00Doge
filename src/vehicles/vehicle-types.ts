@@ -133,3 +133,44 @@ export interface VehicleDef {
   z: number;
   rotation?: number; // initial yaw
 }
+
+/** Physics constants for DynamicRayCastVehicleController */
+export const WARTHOG_PHYSICS = {
+  MASS:                      2000,   // kg — used for collider density
+  ENGINE_FORCE:              5500,   // N per driven wheel (AWD)
+  MAX_BRAKE_FORCE:           3500,   // N per wheel (service brakes)
+  HANDBRAKE_FORCE:           6000,   // N rear wheels only (drift)
+  //
+  // IMPORTANT: Rapier's DynamicRayCastVehicleController uses the same formula
+  // as Bullet Physics: suspensionForce = stiffness * compression * chassis_mass
+  // Stiffness and damping are therefore DIMENSIONLESS (not SI N/m or Ns/m).
+  // The effective spring constant is stiffness * mass = 50 * 2000 = 100000 N/m.
+  //
+  SUSPENSION_STIFFNESS:       50,   // dimensionless (× chassis_mass = effective N/m)
+  SUSPENSION_DAMPING_COMP:     4,   // compression damping (dimensionless, Bullet default ≈ 4.4)
+  SUSPENSION_DAMPING_REL:      2,   // relaxation damping (dimensionless, Bullet default ≈ 2.3)
+  SUSPENSION_MAX_FORCE:   100000,   // N per wheel (hard cap)
+  SUSPENSION_REST_LENGTH:    0.25,  // m — distance from connection point to wheel center at rest
+  SUSPENSION_MAX_TRAVEL:     0.70,  // m — total ray = REST+TRAVEL = 0.95 > connection_Y = 0.70
+  FRICTION_SLIP:              1.5,  // forward traction
+  SIDE_FRICTION:              1.0,  // lateral grip multiplier
+  LINEAR_DAMPING:            0.05,  // air/rolling drag on body
+  ANGULAR_DAMPING:           0.5,   // yaw damping
+} as const;
+
+/**
+ * Wheel connection points in chassis body local space.
+ *
+ * Body spawns at world Y = GROUND_CLEARANCE + HALF_HEIGHT + 0.05 = 0.52 + 0.55 + 0.05 = 1.12
+ * At rest, wheel center must be at WHEEL_RADIUS = 0.45 above ground.
+ * connection_world_Y = WHEEL_RADIUS + REST_LENGTH = 0.45 + 0.25 = 0.70
+ * connection_local_Y = connection_world_Y - body_world_Y = 0.70 - 1.12 = -0.42
+ *
+ * Total ray = REST_LENGTH + MAX_TRAVEL = 0.95, starting at 0.70 → reaches -0.25 (below ground) ✓
+ */
+export const WHEEL_CONNECTION_POINTS = [
+  { x: -1.1, y: -0.42, z:  1.18 }, // FL
+  { x:  1.1, y: -0.42, z:  1.18 }, // FR
+  { x: -1.1, y: -0.42, z: -1.0  }, // RL
+  { x:  1.1, y: -0.42, z: -1.0  }, // RR
+] as const;
