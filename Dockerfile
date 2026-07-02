@@ -37,11 +37,19 @@ COPY --from=frontend-builder /app/dist ./dist
 # Create a production server that serves both static files and Socket.IO
 COPY server-production.js ./server-production.js
 
-# Expose port (will use PORT env var, default 3000)
-EXPOSE 3000
+# ONCE persists application data from /storage and expects HTTP on port 80.
+RUN mkdir -p /storage
+
+# Expose port (will use PORT env var, default 80)
+EXPOSE 80
 
 # Set NODE_ENV to production
 ENV NODE_ENV=production
+ENV PORT=80
+ENV STORAGE_PATH=/storage
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1/up || exit 1
 
 # Start the production server
 CMD ["node", "server-production.js"]

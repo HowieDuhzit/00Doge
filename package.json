@@ -15,7 +15,11 @@
     "server": "tsx server/server.ts",
     "start": "node server-production.js",
     "docker:build": "docker build -t 007remix:latest .",
-    "docker:run": "docker run -p 3000:3000 -e NODE_ENV=production 007remix:latest",
+    "docker:run": "docker run -p 3000:80 -e NODE_ENV=production 007remix:latest",
+    "image:build": "docker build -t 007remix:local -t localhost:5000/007remix:local .",
+    "image:publish": "docker start local-registry >/dev/null 2>&1 || docker run -d -p 5000:5000 --restart=always --name local-registry registry:2 && docker tag 007remix:local localhost:5000/007remix:local && docker push localhost:5000/007remix:local",
+    "once:deploy": "npm run image:build && npm run image:publish && once deploy localhost:5000/007remix:local --host 007remix.localhost --disable-tls",
+    "once:update": "npm run image:build && npm run image:publish && once update 007remix.localhost --image localhost:5000/007remix:local",
     "generate-models": "node scripts/generate-models.js"
   },
   "dependencies": {

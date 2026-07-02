@@ -50,6 +50,35 @@ npm run docker:build
 npm run docker:run
 ```
 
+## ONCE Local Deployment
+
+This app is ONCE-compatible as a single Docker container. The production server serves the Vite app, Socket.IO multiplayer, and `/up` healthcheck on container port `80`.
+
+```bash
+# Build the local ONCE image
+npm run image:build
+
+# First local install through ONCE
+npm run once:deploy
+
+# Later updates after rebuilding the image
+npm run once:update
+```
+
+The default local hostname is `007remix.localhost`. The `once:deploy` script uses `--disable-tls`, which is intended for local-only testing. For LAN or public deployment, point DNS at the machine running ONCE and deploy with your real hostname instead.
+
+The app does not require project-specific environment variables for local ONCE deployment. Optional overrides:
+
+```bash
+once deploy 007remix:local --host game.example.com --env PORT=80 --env STORAGE_PATH=/storage
+```
+
+Persistent data lives under `/storage`. Map editor saves are written to `/storage/maps/...` and override the bundled map defaults. Back up local data with:
+
+```bash
+once backup 007remix.localhost 007remix-backup.tar.gz
+```
+
 ## 🛠️ Tech Stack
 
 - **Frontend**: Three.js, Vite, TypeScript
